@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="landing-page">
+    <header class="text-center mb-5 pt-5">
+        <div class="display-1">
+            <i class="fas fa-wallet text-primary"></i>
+        </div>
+        <h1 class="display-4">Welcome to BillPay</h1>
+        <p class="lead">Your all-in-one financial management app powered by Plaid</p>
+        <div class="mt-4">
+            <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-lg me-2">Sign In</a>
+            <a href="{{ url_for('auth.register') }}" class="btn btn-outline-primary btn-lg">Register</a>
+        </div>
+    </header>
+
+    <div class="row g-4 py-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="fas fa-sync fa-3x text-primary mb-3"></i>
+                    <h3>Automatic Syncing</h3>
+                    <p>Connect your bank accounts and credit cards securely with Plaid for automatic data synchronization.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="fas fa-chart-bar fa-3x text-primary mb-3"></i>
+                    <h3>Financial Insights</h3>
+                    <p>Get detailed visualizations and insights about your spending, income, and net worth.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <i class="fas fa-bell fa-3x text-primary mb-3"></i>
+                    <h3>Bill Tracking</h3>
+                    <p>Track your recurring bills and never miss a payment with automatic bill detection and reminders.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row my-5">
+        <div class="col-md-6">
+            <h2>Powered by Plaid</h2>
+            <p>BillPay uses Plaid's secure API to connect to thousands of financial institutions. Your data is encrypted and we never store your bank credentials.</p>
+            <p>With Plaid integration, you'll get:</p>
+            <ul>
+                <li>Real-time account balances</li>
+                <li>Transaction history and categorization</li>
+                <li>Bill identification</li>
+                <li>Income verification</li>
+            </ul>
+        </div>
+        <div class="col-md-6 text-center">
+            <img src="{{ url_for('static', filename='img/plaid-devices.png') }}" class="img-fluid" alt="Plaid on multiple devices">
+        </div>
+    </div>
+
+    <div class="text-center py-5">
+        <h2>Ready to take control of your finances?</h2>
+        <p class="lead mb-4">Sign up today to start tracking your financial health automatically.</p>
+        <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-lg">Get Started</a>
+    </div>
+</div>
+{% endblock %}

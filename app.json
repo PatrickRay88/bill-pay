@@ -1,0 +1,39 @@
+{
+  "name": "BillPay",
+  "description": "A mobile-first financial dashboard powered by Plaid",
+  "repository": "https://github.com/yourusername/billpay",
+  "keywords": ["python", "flask", "plaid", "finance"],
+  "addons": [
+    "heroku-postgresql"
+  ],
+  "env": {
+    "SECRET_KEY": {
+      "description": "A secret key for verifying the integrity of signed cookies.",
+      "generator": "secret"
+    },
+    "FLASK_ENV": {
+      "description": "Flask environment",
+      "value": "production"
+    },
+    "PLAID_CLIENT_ID": {
+      "description": "Your Plaid client ID",
+      "required": true
+    },
+    "PLAID_SECRET": {
+      "description": "Your Plaid secret key",
+      "required": true
+    },
+    "PLAID_ENV": {
+      "description": "Plaid API environment (sandbox, development, or production)",
+      "value": "development"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "scripts": {
+    "postdeploy": "flask db upgrade"
+  }
+}

@@ -1,0 +1,179 @@
+/* Main Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding-bottom: 80px; /* Space for mobile nav */
+}
+
+/* Card Styles */
+.card {
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-3px);
+}
+
+.card-header {
+    font-weight: 500;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile Navigation */
+.mobile-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: #fff;
+    padding: 10px 0;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+}
+
+.mobile-nav .nav-link {
+    color: #495057;
+    text-align: center;
+    font-size: 0.8rem;
+}
+
+.mobile-nav .nav-link i {
+    font-size: 1.4rem;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.mobile-nav .nav-link.active {
+    color: #007bff;
+}
+
+/* Dashboard Cards */
+.dashboard-card {
+    text-align: center;
+    padding: 15px;
+}
+
+.dashboard-card .value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #212529;
+}
+
+.dashboard-card .label {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    color: #6c757d;
+}
+
+/* Transaction List */
+.transaction-item {
+    border-left: 3px solid transparent;
+    padding: 10px 15px;
+    transition: background-color 0.2s;
+}
+
+.transaction-item:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.transaction-item.income {
+    border-left-color: #28a745;
+}
+
+.transaction-item.expense {
+    border-left-color: #dc3545;
+}
+
+.transaction-amount {
+    font-weight: 700;
+}
+
+.transaction-amount.income {
+    color: #28a745;
+}
+
+.transaction-amount.expense {
+    color: #dc3545;
+}
+
+/* Bill List */
+.bill-item {
+    position: relative;
+    border-left: 3px solid #ffc107;
+    padding: 15px;
+}
+
+.bill-item.paid {
+    border-left-color: #28a745;
+}
+
+.bill-item.past-due {
+    border-left-color: #dc3545;
+}
+
+.bill-item .due-date {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.bill-status {
+    position: absolute;
+    right: 15px;
+    top: 15px;
+}
+
+/* Auth Forms */
+.auth-form {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.auth-form .card {
+    border: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.auth-logo {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.auth-logo i {
+    font-size: 3rem;
+    color: #007bff;
+}
+
+/* Loading Spinner */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+/* Custom Utilities */
+.text-money {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    
+    .dashboard-card .value {
+        font-size: 1.5rem;
+    }
+}

@@ -1,0 +1,463 @@
+import os
+import datetime
+from plaid.api import plaid_api
+from plaid.model.accounts_get_request import AccountsGetRequest
+from plaid.model.transactions_get_request import TransactionsGetRequest
+from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
+from plaid.model.liabilities_get_request import LiabilitiesGetRequest
+from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+from plaid.model.link_token_create_request import LinkTokenCreateRequest
+from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.products import Products
+from plaid.model.country_code import CountryCode
+from flask import current_app
+from cryptography.fernet import Fernet
+from app import db, plaid_client
+from app.models import User, Account, Transaction, Bill, Income
+
+# For encrypting/decrypting the Plaid access token
+def get_encryption_key():
+    # In production, use a properly stored key
+    key = os.environ.get('ENCRYPTION_KEY')
+    if not key:
+        # This should be set properly in production
+        key = current_app.config['SECRET_KEY']
+    # Ensure the key is 32 url-safe base64-encoded bytes
+    return Fernet.generate_key() if not key else key.encode()[:32].ljust(32, b'=')
+
+def encrypt_token(token):
+    """Encrypt the Plaid access token before storing it."""
+    if not token:
+        return None
+    f = Fernet(get_encryption_key())
+    return f.encrypt(token.encode()).decode()
+
+def decrypt_token(encrypted_token):
+    """Decrypt the stored Plaid access token."""
+    if not encrypted_token:
+        return None
+    f = Fernet(get_encryption_key())
+    return f.decrypt(encrypted_token.encode()).decode()
+
+def create_link_token(user_id):
+    """Create a Plaid Link token for initializing Link."""
+    try:
+        request = LinkTokenCreateRequest(
+            client_name="BillPay App",
+            country_codes=[CountryCode(code) for code in current_app.config['PLAID_COUNTRY_CODES']],
+            language="en",
+            user=LinkTokenCreateRequestUser(client_user_id=str(user_id)),
+            products=[Products(product) for product in current_app.config['PLAID_PRODUCTS']],
+            redirect_uri=current_app.config.get('PLAID_REDIRECT_URI')
+        )
+        response = plaid_client.link_token_create(request)
+        return response.link_token
+    except Exception as e:
+        current_app.logger.error(f"Error creating link token: {str(e)}")
+        return None
+
+def exchange_public_token(public_token, user):
+    """Exchange the public token for an access token and store it with the user."""
+    try:
+        exchange_request = ItemPublicTokenExchangeRequest(public_token=public_token)
+        exchange_response = plaid_client.item_public_token_exchange(exchange_request)
+        
+        # Store the access token with the user
+        access_token = exchange_response.access_token
+        item_id = exchange_response.item_id
+        
+        # Encrypt the access token before storing
+        user.plaid_access_token = encrypt_token(access_token)
+        user.item_id = item_id
+        db.session.commit()
+        
+        # After exchanging the token, fetch initial data
+        fetch_accounts(user)
+        fetch_transactions(user)
+        fetch_liabilities(user)
+        fetch_income(user)
+        
+        return True, "Successfully connected your account!"
+    except Exception as e:
+        current_app.logger.error(f"Error exchanging public token: {str(e)}")
+        return False, f"Error connecting your account: {str(e)}"
+
+def fetch_accounts(user):
+    """Fetch account data from Plaid and store it in the database."""
+    try:
+        # Decrypt the access token
+        access_token = decrypt_token(user.plaid_access_token)
+        if not access_token:
+            return False, "No access token available"
+        
+        # Request account information
+        request = AccountsGetRequest(access_token=access_token)
+        response = plaid_client.accounts_get(request)
+        
+        # Update or create accounts in our database
+        for plaid_account in response.accounts:
+            # Check if the account exists
+            account = Account.query.filter_by(
+                user_id=user.id,
+                plaid_account_id=plaid_account.account_id
+            ).first()
+            
+            if not account:
+                # Create new account
+                account = Account(
+                    user_id=user.id,
+                    plaid_account_id=plaid_account.account_id,
+                    name=plaid_account.name,
+                    official_name=plaid_account.official_name,
+                    type=plaid_account.type,
+                    subtype=plaid_account.subtype,
+                    mask=plaid_account.mask
+                )
+                db.session.add(account)
+            
+            # Update account balances
+            if plaid_account.balances:
+                account.current_balance = plaid_account.balances.current
+                account.available_balance = plaid_account.balances.available
+                account.iso_currency_code = plaid_account.balances.iso_currency_code or 'USD'
+            
+            account.last_synced = datetime.datetime.utcnow()
+        
+        db.session.commit()
+        return True, "Accounts updated successfully"
+    
+    except Exception as e:
+        current_app.logger.error(f"Error fetching accounts: {str(e)}")
+        db.session.rollback()
+        return False, f"Error fetching accounts: {str(e)}"
+
+def fetch_transactions(user, start_date=None, end_date=None):
+    """Fetch transaction data from Plaid and store it in the database."""
+    try:
+        # Decrypt the access token
+        access_token = decrypt_token(user.plaid_access_token)
+        if not access_token:
+            return False, "No access token available"
+        
+        # Set date range
+        if not start_date:
+            # Default to 30 days ago if not specified
+            start_date = (datetime.datetime.now() - datetime.timedelta(days=30)).date()
+        if not end_date:
+            end_date = datetime.datetime.now().date()
+            
+        options = TransactionsGetRequestOptions(
+            count=500,
+            include_personal_finance_category=True
+        )
+            
+        # Request transactions
+        request = TransactionsGetRequest(
+            access_token=access_token,
+            start_date=start_date,
+            end_date=end_date,
+            options=options
+        )
+        response = plaid_client.transactions_get(request)
+        
+        # Get accounts for this user to link transactions
+        account_map = {account.plaid_account_id: account.id for account in user.accounts}
+        
+        # Process transactions
+        for plaid_transaction in response.transactions:
+            # Check if the transaction exists
+            transaction = Transaction.query.filter_by(
+                plaid_transaction_id=plaid_transaction.transaction_id
+            ).first()
+            
+            # Get the corresponding account
+            if plaid_transaction.account_id in account_map:
+                account_id = account_map[plaid_transaction.account_id]
+            else:
+                # If we don't have this account, skip the transaction
+                continue
+            
+            if not transaction:
+                # Create new transaction
+                transaction = Transaction(
+                    user_id=user.id,
+                    account_id=account_id,
+                    plaid_transaction_id=plaid_transaction.transaction_id,
+                    name=plaid_transaction.name,
+                    amount=plaid_transaction.amount,
+                    date=plaid_transaction.date,
+                    pending=plaid_transaction.pending
+                )
+                db.session.add(transaction)
+            
+            # Update transaction details
+            transaction.category = plaid_transaction.personal_finance_category.primary if plaid_transaction.personal_finance_category else None
+            transaction.category_id = plaid_transaction.category_id
+            transaction.payment_channel = plaid_transaction.payment_channel
+            transaction.merchant_name = plaid_transaction.merchant_name
+            
+            # If location info is available
+            if hasattr(plaid_transaction, 'location'):
+                location_parts = []
+                if plaid_transaction.location.city:
+                    location_parts.append(plaid_transaction.location.city)
+                if plaid_transaction.location.region:
+                    location_parts.append(plaid_transaction.location.region)
+                if plaid_transaction.location.postal_code:
+                    location_parts.append(plaid_transaction.location.postal_code)
+                if plaid_transaction.location.country:
+                    location_parts.append(plaid_transaction.location.country)
+                transaction.location = ", ".join(location_parts)
+        
+        # Analyze recurring transactions
+        detect_recurring_transactions(user.id)
+        
+        db.session.commit()
+        return True, "Transactions updated successfully"
+    
+    except Exception as e:
+        current_app.logger.error(f"Error fetching transactions: {str(e)}")
+        db.session.rollback()
+        return False, f"Error fetching transactions: {str(e)}"
+
+def detect_recurring_transactions(user_id):
+    """Analyze transactions to detect recurring bills."""
+    # This is a simplified implementation - in a real app, you'd use more sophisticated algorithms
+    # or leverage Plaid's recurring transactions endpoints if available
+    try:
+        # Group transactions by name and approximate amount
+        # Look for patterns in timing (monthly, weekly, etc.)
+        # For this example, we'll just look for transactions with the same name and similar amounts
+        
+        # Get all transactions for this user
+        transactions = Transaction.query.filter_by(user_id=user_id).all()
+        
+        # Group by name
+        by_name = {}
+        for transaction in transactions:
+            if transaction.amount < 0:  # Only consider outgoing payments
+                name = transaction.name.lower().strip()
+                if name not in by_name:
+                    by_name[name] = []
+                by_name[name].append(transaction)
+        
+        # Look for recurring patterns
+        for name, txns in by_name.items():
+            if len(txns) >= 2:  # Need at least 2 occurrences
+                # Sort by date
+                txns.sort(key=lambda t: t.date)
+                
+                # Mark as potentially recurring
+                for txn in txns:
+                    txn.is_recurring = True
+                
+                # Check if we already have a bill for this
+                bill = Bill.query.filter_by(
+                    user_id=user_id,
+                    name=name
+                ).first()
+                
+                if not bill:
+                    # Create a new bill
+                    # Use the average amount and most recent date
+                    avg_amount = abs(sum(t.amount for t in txns) / len(txns))
+                    latest_date = txns[-1].date
+                    
+                    # Create a bill
+                    bill = Bill(
+                        user_id=user_id,
+                        name=name.title(),  # Capitalize for display
+                        amount=round(avg_amount, 2),
+                        due_date=latest_date,
+                        category=txns[0].category,
+                        status="paid" if latest_date <= datetime.datetime.now().date() else "unpaid",
+                        notes="Automatically detected from recurring transactions"
+                    )
+                    db.session.add(bill)
+        
+        db.session.commit()
+        return True, "Recurring transactions detected"
+    
+    except Exception as e:
+        current_app.logger.error(f"Error detecting recurring transactions: {str(e)}")
+        db.session.rollback()
+        return False, f"Error detecting recurring transactions: {str(e)}"
+
+def fetch_liabilities(user):
+    """Fetch liability data from Plaid and store it in the database."""
+    try:
+        # Decrypt the access token
+        access_token = decrypt_token(user.plaid_access_token)
+        if not access_token:
+            return False, "No access token available"
+        
+        # Request liabilities
+        request = LiabilitiesGetRequest(access_token=access_token)
+        response = plaid_client.liabilities_get(request)
+        
+        # Process credit cards
+        if hasattr(response.liabilities, 'credit'):
+            for credit in response.liabilities.credit:
+                for account in response.accounts:
+                    if account.account_id == credit.account_id:
+                        # Look for existing bill
+                        bill_name = f"{account.name} Payment"
+                        bill = Bill.query.filter_by(
+                            user_id=user.id,
+                            name=bill_name,
+                            plaid_bill_id=credit.account_id
+                        ).first()
+                        
+                        if not bill:
+                            # Create new bill
+                            bill = Bill(
+                                user_id=user.id,
+                                plaid_bill_id=credit.account_id,
+                                name=bill_name,
+                                amount=credit.minimum_payment_amount or credit.last_statement_balance or 0,
+                                due_date=credit.next_payment_due_date,
+                                category="Credit Card",
+                                status="unpaid",
+                                notes="Automatically created from Plaid liabilities"
+                            )
+                            db.session.add(bill)
+                        else:
+                            # Update existing bill
+                            bill.amount = credit.minimum_payment_amount or credit.last_statement_balance or 0
+                            bill.due_date = credit.next_payment_due_date
+        
+        # Process student loans
+        if hasattr(response.liabilities, 'student'):
+            for loan in response.liabilities.student:
+                for account in response.accounts:
+                    if account.account_id == loan.account_id:
+                        # Look for existing bill
+                        bill_name = f"{loan.loan_name or account.name} Payment"
+                        bill = Bill.query.filter_by(
+                            user_id=user.id,
+                            name=bill_name,
+                            plaid_bill_id=loan.account_id
+                        ).first()
+                        
+                        if not bill:
+                            # Create new bill
+                            bill = Bill(
+                                user_id=user.id,
+                                plaid_bill_id=loan.account_id,
+                                name=bill_name,
+                                amount=loan.minimum_payment_amount or 0,
+                                due_date=loan.next_payment_due_date,
+                                category="Student Loan",
+                                status="unpaid",
+                                notes=f"Automatically created from Plaid liabilities"
+                            )
+                            db.session.add(bill)
+                        else:
+                            # Update existing bill
+                            bill.amount = loan.minimum_payment_amount or 0
+                            bill.due_date = loan.next_payment_due_date
+        
+        # Process mortgages
+        if hasattr(response.liabilities, 'mortgage'):
+            for mortgage in response.liabilities.mortgage:
+                for account in response.accounts:
+                    if account.account_id == mortgage.account_id:
+                        # Look for existing bill
+                        bill_name = f"{account.name} Payment"
+                        bill = Bill.query.filter_by(
+                            user_id=user.id,
+                            name=bill_name,
+                            plaid_bill_id=mortgage.account_id
+                        ).first()
+                        
+                        if not bill:
+                            # Create new bill
+                            bill = Bill(
+                                user_id=user.id,
+                                plaid_bill_id=mortgage.account_id,
+                                name=bill_name,
+                                amount=mortgage.next_monthly_payment or 0,
+                                due_date=mortgage.next_payment_due_date,
+                                category="Mortgage",
+                                status="unpaid",
+                                notes="Automatically created from Plaid liabilities"
+                            )
+                            db.session.add(bill)
+                        else:
+                            # Update existing bill
+                            bill.amount = mortgage.next_monthly_payment or 0
+                            bill.due_date = mortgage.next_payment_due_date
+        
+        db.session.commit()
+        return True, "Liabilities updated successfully"
+    
+    except Exception as e:
+        current_app.logger.error(f"Error fetching liabilities: {str(e)}")
+        db.session.rollback()
+        return False, f"Error fetching liabilities: {str(e)}"
+
+def fetch_income(user):
+    """
+    Analyze transactions to identify income sources.
+    
+    Note: This is a simplified approach. A production app would use Plaid's
+    income verification endpoints or more sophisticated algorithms.
+    """
+    try:
+        # For this example, we'll identify income by looking for large deposits
+        # A more complete implementation would use Plaid's income verification products
+        
+        # Get all deposits for this user
+        deposits = Transaction.query.filter_by(user_id=user.id)\
+            .filter(Transaction.amount < 0)\
+            .order_by(Transaction.date.desc())\
+            .limit(100).all()
+        
+        # Group by source/description
+        income_sources = {}
+        for deposit in deposits:
+            if deposit.amount < -200:  # Only consider larger deposits as potential income
+                name = deposit.name.lower().strip()
+                if "salary" in name or "payroll" in name or "deposit" in name or "direct dep" in name:
+                    if name not in income_sources:
+                        income_sources[name] = []
+                    income_sources[name].append(deposit)
+        
+        # Create/update income records
+        for name, transactions in income_sources.items():
+            if len(transactions) >= 1:  # Need at least one occurrence
+                # Check if we already have this income source
+                income = Income.query.filter_by(
+                    user_id=user.id,
+                    source=name
+                ).first()
+                
+                # Average amount and latest date
+                avg_amount = sum(abs(t.amount) for t in transactions) / len(transactions)
+                latest_date = max(t.date for t in transactions)
+                
+                if not income:
+                    # Create new income record
+                    income = Income(
+                        user_id=user.id,
+                        source=name.title(),  # Capitalize for display
+                        gross_amount=round(avg_amount, 2),
+                        net_amount=round(avg_amount, 2),
+                        frequency="bi-weekly",  # Default assumption
+                        date=latest_date,
+                        notes="Automatically detected from deposits"
+                    )
+                    db.session.add(income)
+                else:
+                    # Update existing income
+                    income.gross_amount = round(avg_amount, 2)
+                    income.net_amount = round(avg_amount, 2)
+                    income.date = latest_date
+        
+        db.session.commit()
+        return True, "Income sources detected successfully"
+    
+    except Exception as e:
+        current_app.logger.error(f"Error analyzing income: {str(e)}")
+        db.session.rollback()
+        return False, f"Error analyzing income: {str(e)}"

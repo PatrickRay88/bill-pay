@@ -1,0 +1,36 @@
+<div class="d-md-none mobile-nav">
+    <div class="container">
+        <div class="row text-center">
+            <div class="col">
+                <a href="{{ url_for('dashboard.index') }}" class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i>
+                    <small class="d-block">Home</small>
+                </a>
+            </div>
+            <div class="col">
+                <a href="{{ url_for('accounts.index') }}" class="nav-link {% if request.endpoint.startswith('accounts') %}active{% endif %}">
+                    <i class="fas fa-university"></i>
+                    <small class="d-block">Accounts</small>
+                </a>
+            </div>
+            <div class="col">
+                <a href="{{ url_for('transactions.index') }}" class="nav-link {% if request.endpoint.startswith('transactions') %}active{% endif %}">
+                    <i class="fas fa-exchange-alt"></i>
+                    <small class="d-block">Transactions</small>
+                </a>
+            </div>
+            <div class="col">
+                <a href="{{ url_for('bills.index') }}" class="nav-link {% if request.endpoint.startswith('bills') %}active{% endif %}">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                    <small class="d-block">Bills</small>
+                </a>
+            </div>
+            <div class="col">
+                <a href="{{ url_for('income.index') }}" class="nav-link {% if request.endpoint.startswith('income') %}active{% endif %}">
+                    <i class="fas fa-money-bill-wave"></i>
+                    <small class="d-block">Income</small>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

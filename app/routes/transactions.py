@@ -100,7 +100,7 @@ def detail(transaction_id, *args, **kwargs):
     if not current_user.is_authenticated:
         return redirect(url_for('auth.login'))
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
-    account = Account.query.get(transaction.account_id)
+    account = db.session.get(Account, transaction.account_id)
     
     return render_template(
         'transactions/detail.html',

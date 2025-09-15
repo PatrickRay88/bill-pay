@@ -1,17 +1,21 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db, login_manager
+from app.utils.time import utc_now
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return db.session.get(User, int(user_id))
+    except Exception:
+        return None
 
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     plaid_access_token = db.Column(db.String(255))  # encrypted
     item_id = db.Column(db.String(100))  # Plaid item ID
     role = db.Column(db.String(20), default='user', nullable=False)  # 'user' or 'admin'
@@ -48,7 +52,7 @@ class Account(db.Model):
     current_balance = db.Column(db.Float)
     available_balance = db.Column(db.Float)
     iso_currency_code = db.Column(db.String(3), default='USD')
-    last_synced = db.Column(db.DateTime, default=datetime.utcnow)
+    last_synced = db.Column(db.DateTime, default=utc_now)
     
     # Relationships
     transactions = db.relationship('Transaction', backref='account', lazy=True, cascade="all, delete-orphan")
@@ -73,8 +77,8 @@ class Transaction(db.Model):
     location = db.Column(db.String(255))
     notes = db.Column(db.Text)
     is_recurring = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     def __repr__(self):
         return f'<Transaction {self.name} ${self.amount}>'
@@ -92,8 +96,8 @@ class Bill(db.Model):
     status = db.Column(db.String(20), default="unpaid")
     autopay = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     def __repr__(self):
         return f'<Bill {self.name} ${self.amount}>'
@@ -109,8 +113,8 @@ class Income(db.Model):
     frequency = db.Column(db.String(50), nullable=False)
     date = db.Column(db.Date, nullable=False)
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     
     def __repr__(self):
         return f'<Income {self.source} ${self.gross_amount}>'

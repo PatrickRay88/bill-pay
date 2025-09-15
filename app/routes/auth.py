@@ -111,7 +111,7 @@ def reset_password(token):
         return redirect(url_for('auth.forgot_password'))
     form = ResetPasswordForm()
     if form.validate_on_submit():
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             flash('User no longer exists.', 'danger')
             return redirect(url_for('auth.register'))

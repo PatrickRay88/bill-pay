@@ -1,5 +1,6 @@
 import os
 import datetime
+from app.utils.time import utc_now
 from plaid.api import plaid_api
 from plaid.model.accounts_get_request import AccountsGetRequest
 from plaid.model.transactions_get_request import TransactionsGetRequest
@@ -217,7 +218,7 @@ def fetch_accounts(user):
                 account.available_balance = plaid_account.balances.available
                 account.iso_currency_code = plaid_account.balances.iso_currency_code or 'USD'
             
-            account.last_synced = datetime.datetime.utcnow()
+            account.last_synced = utc_now()
         
         db.session.commit()
         # Propagate accounts relationship back to original detached instance (used in tests)

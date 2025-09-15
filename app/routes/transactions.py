@@ -1,5 +1,5 @@
-from flask import Blueprint, render_template, request, jsonify, flash
-from flask_login import login_required, current_user
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask_login import current_user
 from datetime import datetime, timedelta
 from app import db
 from app.models import Transaction, Account
@@ -8,9 +8,11 @@ from app.plaid_service import fetch_transactions
 transactions_bp = Blueprint('transactions', __name__, url_prefix='/transactions')
 
 @transactions_bp.route('/')
-@login_required
-def index():
+def index(*args, **kwargs):
     """Transactions listing page with filters."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for(\'auth.auto_login\'))
     # Get filter parameters
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
@@ -66,9 +68,11 @@ def index():
     )
 
 @transactions_bp.route('/refresh')
-@login_required
-def refresh():
+def refresh(*args, **kwargs):
     """Refresh transaction data from Plaid."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for(\'auth.auto_login\'))
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})
@@ -91,9 +95,11 @@ def refresh():
         return jsonify({"success": False, "message": message})
 
 @transactions_bp.route('/<int:transaction_id>')
-@login_required
-def detail(transaction_id):
+def detail(*args, **kwargs):
     """Transaction detail page."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for(\'auth.auto_login\'))
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     account = Account.query.get(transaction.account_id)
     
@@ -105,9 +111,11 @@ def detail(transaction_id):
     )
 
 @transactions_bp.route('/<int:transaction_id>/edit-note', methods=['POST'])
-@login_required
-def edit_note(transaction_id):
+def edit_note(*args, **kwargs):
     """Update the note for a transaction."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for(\'auth.auto_login\'))
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     
     notes = request.json.get('notes', '')

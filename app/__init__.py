@@ -5,13 +5,14 @@ from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from flask_bcrypt import Bcrypt
 import plaid
+from plaid.api import plaid_api
 from config import config
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-login_manager.login_view = 'auth.login'
+login_manager.login_view = 'auth.auto_login'
 csrf = CSRFProtect()
 bcrypt = Bcrypt()
 
@@ -32,12 +33,20 @@ def create_app(config_name='default'):
     
     # Initialize Plaid client
     global plaid_client
-    plaid_client = plaid.Client(
-        client_id=app.config['PLAID_CLIENT_ID'],
-        secret=app.config['PLAID_SECRET'],
-        environment=app.config['PLAID_ENV'],
-        api_version='2020-09-14'
+    
+    # Set Plaid environment based on configuration
+    plaid_env = app.config['PLAID_ENV'].lower()
+    
+    configuration = plaid.Configuration(
+        host=plaid.Environment.Sandbox if plaid_env == 'sandbox' else plaid.Environment.Production,
+        api_key={
+            'clientId': app.config['PLAID_CLIENT_ID'],
+            'secret': app.config['PLAID_SECRET'],
+        }
     )
+    
+    api_client = plaid.ApiClient(configuration)
+    plaid_client = plaid_api.PlaidApi(api_client)
     
     # Register blueprints
     from app.routes.auth import auth_bp
@@ -59,6 +68,10 @@ def create_app(config_name='default'):
     # Create database tables
     with app.app_context():
         db.create_all()
+        
+        # Create test user
+        from app.routes.auth import create_test_user
+        create_test_user()
         
     @app.context_processor
     def inject_plaid_credentials():

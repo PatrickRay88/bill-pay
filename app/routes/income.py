@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
-from flask_login import login_required, current_user
+from flask_login import current_user
 from app import db
 from app.models import Income
 from app.forms import IncomeForm
@@ -8,9 +8,11 @@ from app.plaid_service import fetch_income
 income_bp = Blueprint('income', __name__, url_prefix='/income')
 
 @income_bp.route('/')
-@login_required
-def index():
+def index(*args, **kwargs):
     """Income overview page."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     # Get all income sources for the current user
     incomes = Income.query.filter_by(user_id=current_user.id).order_by(Income.date.desc()).all()
     
@@ -34,9 +36,11 @@ def index():
     )
 
 @income_bp.route('/add', methods=['GET', 'POST'])
-@login_required
-def add():
+def add(*args, **kwargs):
     """Add a new income source."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     form = IncomeForm()
     if form.validate_on_submit():
         income = Income(
@@ -56,9 +60,11 @@ def add():
     return render_template('income/form.html', title='Add Income Source', form=form)
 
 @income_bp.route('/<int:income_id>/edit', methods=['GET', 'POST'])
-@login_required
-def edit(income_id):
+def edit(income_id, *args, **kwargs):
     """Edit an existing income source."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     income = Income.query.filter_by(id=income_id, user_id=current_user.id).first_or_404()
     
     # Check if it's a Plaid-detected income
@@ -74,9 +80,11 @@ def edit(income_id):
     return render_template('income/form.html', title='Edit Income Source', form=form, is_plaid_income=is_plaid_income)
 
 @income_bp.route('/<int:income_id>/delete', methods=['POST'])
-@login_required
-def delete(income_id):
+def delete(income_id, *args, **kwargs):
     """Delete an income source."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     income = Income.query.filter_by(id=income_id, user_id=current_user.id).first_or_404()
     
     # Check if it's a Plaid-detected income
@@ -91,18 +99,22 @@ def delete(income_id):
     return redirect(url_for('income.index'))
 
 @income_bp.route('/simulator')
-@login_required
-def simulator():
+def simulator(*args, **kwargs):
     """Paycheck simulator tool."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     # Get all income sources for the current user
     incomes = Income.query.filter_by(user_id=current_user.id).all()
     
     return render_template('income/simulator.html', title='Income Simulator', incomes=incomes)
 
 @income_bp.route('/refresh')
-@login_required
-def refresh():
+def refresh(*args, **kwargs):
     """Refresh income data from Plaid."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})

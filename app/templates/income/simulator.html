@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3" style="max-width:880px;">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Income Simulator</h2>
+    <a href="{{ url_for('income.index') }}" class="btn btn-sm btn-secondary">Back</a>
+  </div>
+  <div class="alert alert-info">This is a placeholder for future paycheck projection tools.</div>
+  <div class="card">
+    <div class="card-body">
+      <p class="mb-0">Existing Income Sources:</p>
+      <ul class="mb-0">
+        {% for inc in incomes %}
+          <li>{{ inc.source }} - {{ inc.frequency }} - ${{ inc.net_amount | round(2) }}</li>
+        {% else %}
+          <li class="text-muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

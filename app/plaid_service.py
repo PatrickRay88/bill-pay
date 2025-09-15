@@ -9,21 +9,63 @@ from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchan
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.products import Products
+from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCreateRequest
 from plaid.model.country_code import CountryCode
 from flask import current_app
 from cryptography.fernet import Fernet
 from app import db, plaid_client
 from app.models import User, Account, Transaction, Bill, Income
 
+def unlink_plaid(user, reset_data=True):
+    """Completely unlink Plaid for a user.
+
+    Parameters:
+        user: User instance
+        reset_data (bool): If True, delete Plaid-derived records (accounts, transactions, bills with plaid_bill_id, incomes with plaid_income_id).
+
+    Returns (success, message)
+    """
+    try:
+        # Clear credentials
+        user.plaid_access_token = None
+        user.item_id = None
+
+        if reset_data:
+            # Delete dependent data in safe order (transactions -> accounts). Bills/income only those linked to Plaid IDs.
+            Transaction.query.filter_by(user_id=user.id).delete()
+            Account.query.filter_by(user_id=user.id).delete()
+            Bill.query.filter(Bill.user_id==user.id, Bill.plaid_bill_id.isnot(None)).delete()
+            Income.query.filter(Income.user_id==user.id, Income.plaid_income_id.isnot(None)).delete()
+
+        db.session.commit()
+        return True, 'Plaid connection removed.'
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Failed to unlink Plaid: {e}")
+        return False, f"Failed to unlink Plaid: {e}"
+
 # For encrypting/decrypting the Plaid access token
 def get_encryption_key():
-    # In production, use a properly stored key
-    key = os.environ.get('ENCRYPTION_KEY')
-    if not key:
-        # This should be set properly in production
-        key = current_app.config['SECRET_KEY']
-    # Ensure the key is 32 url-safe base64-encoded bytes
-    return Fernet.generate_key() if not key else key.encode()[:32].ljust(32, b'=')
+    """Return a stable Fernet key.
+
+    Order of preference:
+    1. ENCRYPTION_KEY env var (assumed valid base64 fernet key)
+    2. Generated and cached in app config for this process (warning logged)
+    Never silently slice SECRET_KEY (risk of decryption mismatch on restart)."""
+    env_key = os.environ.get('ENCRYPTION_KEY')
+    if env_key:
+        try:
+            # Validate length by attempting to build Fernet
+            Fernet(env_key)
+            return env_key.encode()
+        except Exception:
+            current_app.logger.warning('Provided ENCRYPTION_KEY invalid; generating ephemeral key.')
+    # Fallback: cache a generated key for runtime (NOT persistent)
+    if not hasattr(current_app, '_ephemeral_fernet_key'):
+        from cryptography.fernet import Fernet as _F
+        current_app._ephemeral_fernet_key = _F.generate_key()
+        current_app.logger.warning('Using ephemeral encryption key; set ENCRYPTION_KEY for persistence.')
+    return current_app._ephemeral_fernet_key
 
 def encrypt_token(token):
     """Encrypt the Plaid access token before storing it."""
@@ -40,21 +82,64 @@ def decrypt_token(encrypted_token):
     return f.decrypt(encrypted_token.encode()).decode()
 
 def create_link_token(user_id):
-    """Create a Plaid Link token for initializing Link."""
-    try:
-        request = LinkTokenCreateRequest(
+    """Create a Plaid Link token for initializing Link.
+
+    Retries once if unauthorized products are requested (common in sandbox when
+    income or liabilities not yet enabled)."""
+    configured_products = list(current_app.config['PLAID_PRODUCTS'])
+    # Normalize list (could be strings already)
+    configured_products = [p if isinstance(p, str) else str(p) for p in configured_products]
+
+    def _attempt(products):
+        kwargs = dict(
             client_name="BillPay App",
             country_codes=[CountryCode(code) for code in current_app.config['PLAID_COUNTRY_CODES']],
             language="en",
             user=LinkTokenCreateRequestUser(client_user_id=str(user_id)),
-            products=[Products(product) for product in current_app.config['PLAID_PRODUCTS']],
-            redirect_uri=current_app.config.get('PLAID_REDIRECT_URI')
+            products=[Products(p) for p in products]
         )
-        response = plaid_client.link_token_create(request)
-        return response.link_token
+        redirect_uri = current_app.config.get('PLAID_REDIRECT_URI')
+        # Only include redirect_uri if plausibly configured (not default localhost unless explicitly desired)
+        if redirect_uri and 'localhost' not in redirect_uri:
+            kwargs['redirect_uri'] = redirect_uri
+        req = LinkTokenCreateRequest(**kwargs)
+        return plaid_client.link_token_create(req)
+
+    try:
+        try:
+            response = _attempt(configured_products)
+            return response.link_token
+        except Exception as first_error:
+            msg = str(first_error)
+            # Detect unauthorized products pattern
+            if 'client is not authorized to access the following products' in msg:
+                # Parse product names inside brackets ["income", "liabilities"]
+                import re, json
+                unauthorized = []
+                match = re.search(r'products: \[(.+?)\]', msg)
+                if match:
+                    raw = match.group(1)
+                    # Replace single quotes with double for json safety
+                    raw = raw.replace("'", '"')
+                    # Split on commas if not JSON array style
+                    try:
+                        # Attempt to wrap and load
+                        unauthorized = json.loads(f'[{raw}]') if not raw.strip().startswith('[') else json.loads(raw)
+                    except Exception:
+                        unauthorized = [p.strip().strip('"').strip("'") for p in raw.split(',')]
+                filtered = [p for p in configured_products if p not in unauthorized]
+                if not filtered:
+                    current_app.logger.error("All requested Plaid products unauthorized; falling back to 'transactions'.")
+                    filtered = ['transactions']
+                current_app.logger.info(f"Retrying link token creation without unauthorized products: {unauthorized}")
+                response = _attempt(filtered)
+                return response.link_token
+            else:
+                raise first_error
     except Exception as e:
-        current_app.logger.error(f"Error creating link token: {str(e)}")
+        current_app.logger.error(f"Error creating link token after retry: {e}")
         return None
+
 
 def exchange_public_token(public_token, user):
     """Exchange the public token for an access token and store it with the user."""
@@ -74,8 +159,11 @@ def exchange_public_token(public_token, user):
         # After exchanging the token, fetch initial data
         fetch_accounts(user)
         fetch_transactions(user)
-        fetch_liabilities(user)
-        fetch_income(user)
+        products_lower = {p.lower() for p in current_app.config.get('PLAID_PRODUCTS', [])}
+        if 'liabilities' in products_lower:
+            fetch_liabilities(user)
+        if 'income' in products_lower:
+            fetch_income(user)
         
         return True, "Successfully connected your account!"
     except Exception as e:
@@ -104,13 +192,16 @@ def fetch_accounts(user):
             
             if not account:
                 # Create new account
+                # Ensure type/subtype stored as simple strings (Plaid enums can cause sqlite binding errors)
+                acct_type = getattr(plaid_account, 'type', None)
+                acct_subtype = getattr(plaid_account, 'subtype', None)
                 account = Account(
                     user_id=user.id,
                     plaid_account_id=plaid_account.account_id,
                     name=plaid_account.name,
                     official_name=plaid_account.official_name,
-                    type=plaid_account.type,
-                    subtype=plaid_account.subtype,
+                    type=str(acct_type) if acct_type is not None else 'unknown',
+                    subtype=str(acct_subtype) if acct_subtype is not None else None,
                     mask=plaid_account.mask
                 )
                 db.session.add(account)
@@ -216,9 +307,14 @@ def fetch_transactions(user, start_date=None, end_date=None):
         return True, "Transactions updated successfully"
     
     except Exception as e:
-        current_app.logger.error(f"Error fetching transactions: {str(e)}")
+        msg = str(e)
+        # Plaid sandbox often returns PRODUCT_NOT_READY immediately after link; advise retry.
+        if 'PRODUCT_NOT_READY' in msg:
+            current_app.logger.warning('Transactions product not ready yet; advise retry later or add webhook for faster readiness.')
+            return False, 'Transactions not ready yet. Please wait a few seconds and click refresh again.'
+        current_app.logger.error(f"Error fetching transactions: {msg}")
         db.session.rollback()
-        return False, f"Error fetching transactions: {str(e)}"
+        return False, f"Error fetching transactions: {msg}"
 
 def detect_recurring_transactions(user_id):
     """Analyze transactions to detect recurring bills."""

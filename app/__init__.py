@@ -5,13 +5,14 @@ from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from flask_bcrypt import Bcrypt
 import plaid
+from plaid.api import plaid_api
 from config import config
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-login_manager.login_view = 'auth.login'
+login_manager.login_view = 'auth.auto_login'
 csrf = CSRFProtect()
 bcrypt = Bcrypt()
 
@@ -22,6 +23,22 @@ def create_app(config_name='default'):
     """Create and configure the Flask application."""
     app = Flask(__name__)
     app.config.from_object(config[config_name])
+
+    # Plaid product sanitization: remove products that commonly trigger INVALID_PRODUCT in sandbox
+    raw_products = [p.strip() for p in app.config.get('PLAID_PRODUCTS', []) if p.strip()]
+    unauthorized_prone = {'income', 'liabilities', 'assets', 'investments'}
+    filtered_products = [p for p in raw_products if p not in unauthorized_prone]
+    if not filtered_products:
+        filtered_products = ['transactions', 'auth']
+    if filtered_products != raw_products:
+        app.logger.info(f"Sanitized Plaid products list from {raw_products} -> {filtered_products}")
+    app.config['PLAID_PRODUCTS'] = filtered_products
+
+    # Credential sanity checks
+    if not app.config.get('PLAID_CLIENT_ID') or not app.config.get('PLAID_SECRET'):
+        app.logger.warning("Plaid credentials missing; Plaid-dependent features will be disabled.")
+    elif app.config.get('PLAID_ENV', 'sandbox').lower() == 'sandbox':
+        app.logger.info(f"Running in Plaid sandbox with products: {app.config['PLAID_PRODUCTS']}")
     
     # Initialize extensions with app
     db.init_app(app)
@@ -32,12 +49,20 @@ def create_app(config_name='default'):
     
     # Initialize Plaid client
     global plaid_client
-    plaid_client = plaid.Client(
-        client_id=app.config['PLAID_CLIENT_ID'],
-        secret=app.config['PLAID_SECRET'],
-        environment=app.config['PLAID_ENV'],
-        api_version='2020-09-14'
+    
+    # Set Plaid environment based on configuration
+    plaid_env = app.config['PLAID_ENV'].lower()
+    
+    configuration = plaid.Configuration(
+        host=plaid.Environment.Sandbox if plaid_env == 'sandbox' else plaid.Environment.Production,
+        api_key={
+            'clientId': app.config['PLAID_CLIENT_ID'],
+            'secret': app.config['PLAID_SECRET'],
+        }
     )
+    
+    api_client = plaid.ApiClient(configuration)
+    plaid_client = plaid_api.PlaidApi(api_client)
     
     # Register blueprints
     from app.routes.auth import auth_bp
@@ -59,6 +84,10 @@ def create_app(config_name='default'):
     # Create database tables
     with app.app_context():
         db.create_all()
+        
+        # Create test user
+        from app.routes.auth import create_test_user
+        create_test_user()
         
     @app.context_processor
     def inject_plaid_credentials():

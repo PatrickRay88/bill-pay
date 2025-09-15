@@ -18,7 +18,8 @@ class Config:
     PLAID_SECRET = os.environ.get('PLAID_SECRET')
     PLAID_ENV = os.environ.get('PLAID_ENV', 'sandbox')  # sandbox, development, or production
     PLAID_REDIRECT_URI = os.environ.get('PLAID_REDIRECT_URI', 'http://localhost:5000/plaid/oauth-response')
-    PLAID_PRODUCTS = os.environ.get('PLAID_PRODUCTS', 'transactions,auth,income,liabilities').split(',')
+    # Limit default products to core ones that are almost always enabled for sandbox
+    PLAID_PRODUCTS = os.environ.get('PLAID_PRODUCTS', 'transactions,auth').split(',')
     PLAID_COUNTRY_CODES = os.environ.get('PLAID_COUNTRY_CODES', 'US').split(',')
 
 class DevelopmentConfig(Config):

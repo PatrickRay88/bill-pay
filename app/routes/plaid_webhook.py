@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models import User
-from app.plaid_service import fetch_accounts, fetch_transactions, decrypt_token
+from app.plaid_service import fetch_accounts, fetch_transactions, decrypt_token, unlink_plaid
 
 plaid_webhook_bp = Blueprint('plaid_webhook', __name__, url_prefix='/api/plaid')
 
@@ -40,6 +40,24 @@ def exchange_token():
             return jsonify({"error": message}), 400
     
     return exchange()
+
+
+@plaid_webhook_bp.route('/unlink', methods=['POST'])
+def unlink():
+    """Unlink (disconnect) Plaid for the current user, optionally clearing imported data."""
+    from flask_login import current_user, login_required
+
+    @login_required
+    def do_unlink():
+        reset = True
+        if request.is_json:
+            reset = bool(request.json.get('reset', True))
+        success, message = unlink_plaid(current_user, reset_data=reset)
+        if success:
+            return jsonify({"message": message})
+        return jsonify({"error": message}), 400
+
+    return do_unlink()
 
 @plaid_webhook_bp.route('/webhook', methods=['POST'])
 def webhook():

@@ -1,5 +1,5 @@
-from flask import Blueprint, render_template, jsonify, flash
-from flask_login import login_required, current_user
+from flask import Blueprint, render_template, jsonify, flash, redirect, url_for
+from flask_login import current_user
 from app import db
 from app.models import Account, Transaction
 from app.plaid_service import fetch_accounts
@@ -7,9 +7,11 @@ from app.plaid_service import fetch_accounts
 accounts_bp = Blueprint('accounts', __name__, url_prefix='/accounts')
 
 @accounts_bp.route('/')
-@login_required
-def index():
+def index(*args, **kwargs):
     """Accounts overview page."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     # Get all accounts for the current user
     accounts = Account.query.filter_by(user_id=current_user.id).all()
     
@@ -27,9 +29,11 @@ def index():
     )
 
 @accounts_bp.route('/<int:account_id>')
-@login_required
-def detail(account_id):
+def detail(account_id, *args, **kwargs):
     """Account detail page with recent transactions."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     account = Account.query.filter_by(id=account_id, user_id=current_user.id).first_or_404()
     
     # Get recent transactions for this account
@@ -45,9 +49,11 @@ def detail(account_id):
     )
 
 @accounts_bp.route('/refresh')
-@login_required
-def refresh():
+def refresh(*args, **kwargs):
     """Refresh account data from Plaid."""
+    # Ensure user is authenticated
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.auto_login'))
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})

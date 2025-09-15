@@ -3,6 +3,8 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize Plaid Link if token is available
     initPlaidLink();
+    initRefreshButtons();
+    initUnlinkPlaid();
     
     // Initialize tooltips
     var tooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
@@ -19,36 +21,78 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Initialize Plaid Link
 function initPlaidLink() {
-    const linkButton = document.getElementById('plaid-link-button');
     const linkTokenElement = document.getElementById('plaid-link-token');
-    
-    if (linkButton && linkTokenElement) {
-        const linkToken = linkTokenElement.dataset.token;
-        
-        // Initialize Plaid Link
-        const handler = Plaid.create({
-            token: linkToken,
-            onSuccess: (public_token, metadata) => {
-                // Send public_token to server
-                exchangePublicToken(public_token);
-            },
-            onExit: (err, metadata) => {
-                if (err) {
-                    console.error('Plaid Link Error:', err);
-                    showAlert('error', 'There was an error connecting your bank. Please try again.');
-                }
-            },
-            onEvent: (event, metadata) => {
-                console.log('Plaid Link Event:', event, metadata);
+    if (!linkTokenElement) return;
+    const linkButtons = document.querySelectorAll('.plaid-link-button');
+    if (!linkButtons.length) return;
+
+    const linkToken = linkTokenElement.dataset.token;
+
+    // Initialize Plaid Link once
+    const handler = Plaid.create({
+        token: linkToken,
+        onSuccess: (public_token, metadata) => {
+            exchangePublicToken(public_token);
+        },
+        onExit: (err, metadata) => {
+            if (err) {
+                console.error('Plaid Link Error:', err);
+                showAlert('danger', 'There was an error connecting your bank. Please try again.');
             }
-        });
-        
-        // Attach to button
-        linkButton.addEventListener('click', function() {
+        },
+        onEvent: (event, metadata) => {
+            console.log('Plaid Link Event:', event, metadata);
+        }
+    });
+
+    linkButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
             handler.open();
+        });
+    });
+}
+
+function initUnlinkPlaid() {
+    const unlinkBtn = document.getElementById('plaid-unlink-button');
+    if (!unlinkBtn) return;
+    unlinkBtn.addEventListener('click', () => {
+        if(!confirm('Unlink Plaid and remove imported data?')) return;
+        showLoadingOverlay();
+        fetch('/api/plaid/unlink', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+            body: JSON.stringify({ reset: true })
+        })
+        .then(r=>r.json())
+        .then(d=>{ hideLoadingOverlay(); if(d.error){ showAlert('danger', d.error);} else { showAlert('success','Unlinked. Reloading…'); setTimeout(()=>window.location.reload(),1000);} })
+        .catch(e=>{ hideLoadingOverlay(); console.error(e); showAlert('danger','Unlink failed'); });
+    });
+}
+
+function initRefreshButtons() {
+    const accountsBtn = document.getElementById('refresh-accounts-btn');
+    const transactionsBtn = document.getElementById('refresh-transactions-btn');
+    if (accountsBtn) {
+        accountsBtn.addEventListener('click', () => {
+            showLoadingOverlay();
+            fetch('/accounts/refresh', { headers: { 'X-CSRFToken': getCSRFToken() }} )
+                .then(r => r.json())
+                .then(d => { hideLoadingOverlay(); if(d.success){ showAlert('success','Accounts refreshed'); setTimeout(()=>window.location.reload(),900);} else { showAlert('warning', d.message||'Accounts refresh failed'); }})
+                .catch(e => { hideLoadingOverlay(); console.error(e); showAlert('danger','Accounts refresh error'); });
+        });
+    }
+    if (transactionsBtn) {
+        transactionsBtn.addEventListener('click', () => {
+            showLoadingOverlay();
+            fetch('/transactions/refresh', { headers: { 'X-CSRFToken': getCSRFToken() }} )
+                .then(r => r.json())
+                .then(d => { hideLoadingOverlay(); if(d.success){ showAlert('success','Transactions refreshed'); setTimeout(()=>window.location.reload(),900);} else { showAlert('warning', d.message||'Transactions refresh failed'); }})
+                .catch(e => { hideLoadingOverlay(); console.error(e); showAlert('danger','Transactions refresh error'); });
         });
     }
 }
+
 
 // Exchange public token for access token
 function exchangePublicToken(public_token) {

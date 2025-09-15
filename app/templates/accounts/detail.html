@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>{{ account.name }}</h2>
+    <a href="{{ url_for('accounts.index') }}" class="btn btn-sm btn-secondary">Back</a>
+  </div>
+  <div class="row mb-4">
+    <div class="col-md-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="text-muted">Balances</h6>
+          <p class="mb-1">Current: <strong>{{ account.current_balance or 0 | round(2) }} {{ account.iso_currency_code or 'USD' }}</strong></p>
+          {% if account.available_balance is not none %}
+          <p class="mb-1">Available: <strong>{{ account.available_balance | round(2) }}</strong></p>
+          {% endif %}
+          <p class="mb-0 small text-muted">Last synced: {{ account.last_synced }}</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <h6 class="text-muted">Details</h6>
+          <p class="mb-1">Type: {{ account.type }}</p>
+          {% if account.subtype %}<p class="mb-1">Subtype: {{ account.subtype }}</p>{% endif %}
+          {% if account.mask %}<p class="mb-1">Mask: •••• {{ account.mask }}</p>{% endif %}
+          {% if account.official_name %}<p class="mb-0">Official: {{ account.official_name }}</p>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-8">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0 text-muted">Recent Transactions</h6>
+          </div>
+          {% if transactions %}
+            <div class="table-responsive" style="max-height:500px;">
+              <table class="table table-sm table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="text-end">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for txn in transactions %}
+                  <tr>
+                    <td>{{ txn.date }}</td>
+                    <td>
+                      {{ txn.name }}
+                      {% if txn.category %}<div class="small text-muted">{{ txn.category }}</div>{% endif %}
+                    </td>
+                    <td class="text-end {% if txn.amount > 0 %}text-danger{% else %}text-success{% endif %}">
+                      {{ txn.amount | round(2) }}
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="alert alert-info mb-0">No transactions yet for this account.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

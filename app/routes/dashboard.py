@@ -1,24 +1,27 @@
-from flask import Blueprint, render_template, redirect, url_for, flash
-from flask_login import login_required, current_user
+from flask import Blueprint, render_template, redirect, url_for, flash, session
+from flask_login import current_user
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 from app import db
 from app.models import Account, Transaction, Bill, Income
 from app.plaid_service import create_link_token
+from app.routes.auth import create_test_user
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
 @dashboard_bp.route('/')
 def home():
-    """Landing page or redirect to dashboard if logged in."""
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard.index'))
-    return render_template('landing.html', title='Welcome to BillPay')
+    """Redirect to dashboard."""
+    return redirect(url_for('dashboard.index'))
 
 @dashboard_bp.route('/dashboard')
-@login_required
 def index():
     """Dashboard with financial overview."""
+    # Ensure we have a test user logged in
+    if not current_user.is_authenticated:
+        from app.routes.auth import auto_login
+        return redirect(url_for('auth.auto_login'))
+    
     # Initialize Plaid link token if needed
     link_token = None
     if not current_user.plaid_access_token:
@@ -78,14 +81,16 @@ def index():
     sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
     
     # Prepare chart data
+    # NOTE: Use key name 'data' instead of 'values' so Jinja attribute lookup
+    # does not resolve the dict.values method, which caused JSON serialization errors.
     chart_data = {
         'income_vs_expenses': {
             'labels': ['Income', 'Expenses'],
-            'values': [abs(income_total), expense_total]
+            'data': [abs(income_total), expense_total]
         },
         'categories': {
             'labels': [c[0] for c in sorted_categories[:5]],  # Top 5 categories
-            'values': [c[1] for c in sorted_categories[:5]]
+            'data': [c[1] for c in sorted_categories[:5]]
         }
     }
     

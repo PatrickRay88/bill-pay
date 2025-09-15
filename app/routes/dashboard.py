@@ -8,10 +8,6 @@ from app.plaid_service import create_link_token
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
-@dashboard_bp.route('/')
-def home():
-    """Redirect to dashboard."""
-    return redirect(url_for('dashboard.index'))
 
 @dashboard_bp.route('/dashboard')
 def index():

@@ -1,11 +1,17 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="container py-3">
+  
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>Accounts</h2>
-    <div>
+    <div class="d-flex align-items-center">
+      {% if link_token %}
+        <button class="btn btn-sm btn-success me-2 plaid-link-button">
+          <i class="fa fa-link me-1"></i> Connect Bank
+        </button>
+      {% endif %}
       <button class="btn btn-sm btn-outline-primary me-2" id="refresh-accounts-btn">Refresh Accounts</button>
-      <a href="/dashboard" class="btn btn-sm btn-secondary">Back to Dashboard</a>
+      <a href="/dashboard" class="btn btn-sm btn-secondary">Dashboard</a>
     </div>
   </div>
   {% if account_groups %}
@@ -29,7 +35,21 @@
       </div>
     {% endfor %}
   {% else %}
-    <div class="alert alert-info">No accounts yet. Connect a bank from the dashboard.</div>
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body text-center py-5">
+        <div class="mb-3">
+          <i class="fa fa-university fa-3x text-secondary"></i>
+        </div>
+        <h5 class="card-title mb-2">No Accounts Found</h5>
+        <p class="text-muted mb-4">Connect a bank to start syncing balances and transactions.</p>
+        <button class="btn btn-primary plaid-link-button">
+          <i class="fa fa-link me-1"></i> Connect Your Bank
+        </button>
+      </div>
+    </div>
+  {% endif %}
+  {% if link_token %}
+    <div id="plaid-link-token" data-token="{{ link_token }}" class="d-none"></div>
   {% endif %}
 </div>
 {% endblock %}

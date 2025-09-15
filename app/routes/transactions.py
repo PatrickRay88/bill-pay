@@ -10,9 +10,9 @@ transactions_bp = Blueprint('transactions', __name__, url_prefix='/transactions'
 @transactions_bp.route('/')
 def index(*args, **kwargs):
     """Transactions listing page with filters."""
-    # Ensure user is authenticated
+    # Ensure user is authenticated (redirect to real login)
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     # Get filter parameters
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
@@ -70,9 +70,9 @@ def index(*args, **kwargs):
 @transactions_bp.route('/refresh')
 def refresh(*args, **kwargs):
     """Refresh transaction data from Plaid."""
-    # Ensure user is authenticated
+    # API style endpoint: return JSON 401 instead of redirect when unauthenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})
@@ -97,9 +97,8 @@ def refresh(*args, **kwargs):
 @transactions_bp.route('/<int:transaction_id>')
 def detail(transaction_id, *args, **kwargs):
     """Transaction detail page."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     account = Account.query.get(transaction.account_id)
     
@@ -113,9 +112,8 @@ def detail(transaction_id, *args, **kwargs):
 @transactions_bp.route('/<int:transaction_id>/edit-note', methods=['POST'])
 def edit_note(transaction_id, *args, **kwargs):
     """Update the note for a transaction."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     
     notes = request.json.get('notes', '')

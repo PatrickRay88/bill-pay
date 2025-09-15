@@ -3,6 +3,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize Plaid Link if token is available
     initPlaidLink();
+    initGlobalPlaidButton();
     initRefreshButtons();
     initUnlinkPlaid();
     
@@ -25,32 +26,48 @@ function initPlaidLink() {
     if (!linkTokenElement) return;
     const linkButtons = document.querySelectorAll('.plaid-link-button');
     if (!linkButtons.length) return;
-
     const linkToken = linkTokenElement.dataset.token;
-
-    // Initialize Plaid Link once
     const handler = Plaid.create({
         token: linkToken,
-        onSuccess: (public_token, metadata) => {
-            exchangePublicToken(public_token);
-        },
-        onExit: (err, metadata) => {
-            if (err) {
-                console.error('Plaid Link Error:', err);
-                showAlert('danger', 'There was an error connecting your bank. Please try again.');
-            }
-        },
-        onEvent: (event, metadata) => {
-            console.log('Plaid Link Event:', event, metadata);
-        }
+        onSuccess: (public_token) => { exchangePublicToken(public_token); },
+        onExit: (err) => { if (err) { console.error('Plaid Link Error:', err); showAlert('danger','There was an error connecting your bank. Please try again.'); } },
+        onEvent: (event, metadata) => { console.log('Plaid Link Event:', event, metadata); }
     });
-
     linkButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            handler.open();
-        });
+        btn.addEventListener('click', (e) => { e.preventDefault(); handler.open(); });
     });
+}
+
+// Initialize global navbar Plaid button (when no embedded token div exists)
+function initGlobalPlaidButton() {
+    // If there's already a token div the normal init handles it
+    if (document.getElementById('plaid-link-token')) return;
+    const navButton = document.querySelector('button.plaid-link-button');
+    if (!navButton) return;
+
+    let handler = null;
+
+    function ensureHandlerAndOpen() {
+        if (handler) { handler.open(); return; }
+        navButton.disabled = true;
+        navButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Loading...';
+        fetch('/api/plaid/link-token', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() } })
+            .then(r => r.json())
+            .then(d => {
+                if (d.error || !d.link_token) { showAlert('danger', d.error || 'Failed to get link token'); return; }
+                handler = Plaid.create({
+                    token: d.link_token,
+                    onSuccess: (public_token) => { exchangePublicToken(public_token); },
+                    onExit: (err) => { if (err) { console.error('Plaid Link Error:', err); showAlert('danger','Plaid Link error'); } },
+                    onEvent: (event, metadata) => { console.log('Plaid Link Event:', event, metadata); }
+                });
+                handler.open();
+            })
+            .catch(e => { console.error(e); showAlert('danger','Link token fetch failed'); })
+            .finally(()=> { navButton.disabled = false; navButton.innerHTML = '<i class="fa fa-link me-1"></i> Connect Bank'; });
+    }
+
+    navButton.addEventListener('click', (e) => { e.preventDefault(); ensureHandlerAndOpen(); });
 }
 
 function initUnlinkPlaid() {

@@ -81,14 +81,16 @@ def index():
     sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
     
     # Prepare chart data
+    # NOTE: Use key name 'data' instead of 'values' so Jinja attribute lookup
+    # does not resolve the dict.values method, which caused JSON serialization errors.
     chart_data = {
         'income_vs_expenses': {
             'labels': ['Income', 'Expenses'],
-            'values': [abs(income_total), expense_total]
+            'data': [abs(income_total), expense_total]
         },
         'categories': {
             'labels': [c[0] for c in sorted_categories[:5]],  # Top 5 categories
-            'values': [c[1] for c in sorted_categories[:5]]
+            'data': [c[1] for c in sorted_categories[:5]]
         }
     }
     

@@ -1,20 +1,28 @@
 {% extends 'base.html' %}
 
 {% block content %}
+{% set is_sandbox = PLAID_ENV|lower == 'sandbox' %}
 {% if link_token %}
-<!-- Hidden Plaid link token for JS -->
-<div id="plaid-link-token" data-token="{{ link_token }}" style="display: none;"></div>
-
-<!-- Plaid onboarding banner -->
-<div class="alert alert-info mb-4" role="alert">
-    <div class="d-flex align-items-center">
-        <div class="flex-grow-1">
-            <h4 class="alert-heading"><i class="fas fa-university me-2"></i> Connect Your Bank</h4>
-            <p class="mb-0">Link your bank accounts securely with Plaid to automatically import transactions, bills, and income.</p>
+    <!-- Hidden Plaid link token for JS -->
+    <div id="plaid-link-token" data-token="{{ link_token }}" style="display: none;"></div>
+    <div class="alert alert-info mb-4" role="alert">
+        <div class="d-flex align-items-center">
+            <div class="flex-grow-1">
+                <h4 class="alert-heading"><i class="fas fa-university me-2"></i> Connect Your Bank</h4>
+                <p class="mb-0">Link your bank accounts securely with Plaid to automatically import transactions, bills, and income.</p>
+            </div>
+            <button class="btn btn-primary plaid-link-button">
+                <i class="fas fa-link me-2"></i> Connect Now
+            </button>
         </div>
-        <button id="plaid-link-button" class="btn btn-primary">
-            <i class="fas fa-link me-2"></i> Connect Now
-        </button>
+    </div>
+{% endif %}
+
+{% if current_user.plaid_access_token %}
+<div class="alert alert-secondary d-flex justify-content-between align-items-center py-2 px-3 mb-3" role="alert">
+    <div class="small mb-0">Plaid linked (sandbox). You can unlink to reset demo data.</div>
+    <div class="d-flex gap-2">
+        <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger">Unlink Plaid</button>
     </div>
 </div>
 {% endif %}
@@ -58,6 +66,12 @@
 <div class="row">
     <!-- Charts Column -->
     <div class="col-md-8 mb-4">
+    {% if current_user.plaid_access_token or is_sandbox %}
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-sm btn-outline-secondary" id="refresh-accounts-btn"><i class="fas fa-sync-alt me-1"></i> Refresh Accounts</button>
+            <button class="btn btn-sm btn-outline-secondary" id="refresh-transactions-btn"><i class="fas fa-sync-alt me-1"></i> Refresh Transactions</button>
+        </div>
+        {% endif %}
         <!-- Income vs Expenses Chart -->
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -156,14 +170,16 @@
 <script>
     // Initialize charts when the page is loaded
     document.addEventListener('DOMContentLoaded', function() {
+    // Full chart data injected from Flask
+    const chartData = JSON.parse(document.getElementById('chart-data-json').textContent);
         // Income vs Expenses Chart
         const incomeExpensesCtx = document.getElementById('incomeExpensesChart').getContext('2d');
         const incomeExpensesChart = new Chart(incomeExpensesCtx, {
             type: 'doughnut',
             data: {
-                labels: {{ chart_data.income_vs_expenses.labels|tojson }},
+                labels: chartData.income_vs_expenses.labels,
                 datasets: [{
-                    data: {{ chart_data.income_vs_expenses.values|tojson }},
+                    data: chartData.income_vs_expenses.data,
                     backgroundColor: ['#28a745', '#dc3545'],
                     borderWidth: 1
                 }]
@@ -192,10 +208,10 @@
         const categoriesChart = new Chart(categoriesCtx, {
             type: 'bar',
             data: {
-                labels: {{ chart_data.categories.labels|tojson }},
+                labels: chartData.categories.labels,
                 datasets: [{
                     label: 'Amount ($)',
-                    data: {{ chart_data.categories.values|tojson }},
+                    data: chartData.categories.data,
                     backgroundColor: [
                         'rgba(255, 99, 132, 0.7)',
                         'rgba(54, 162, 235, 0.7)',
@@ -234,4 +250,5 @@
         });
     });
 </script>
+<script id="chart-data-json" type="application/json">{{ chart_data|tojson }}</script>
 {% endblock %}

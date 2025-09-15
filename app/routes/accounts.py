@@ -11,7 +11,7 @@ def index(*args, **kwargs):
     """Accounts overview page."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     # Get all accounts for the current user
     accounts = Account.query.filter_by(user_id=current_user.id).all()
     
@@ -29,11 +29,11 @@ def index(*args, **kwargs):
     )
 
 @accounts_bp.route('/<int:account_id>')
-def detail(*args, **kwargs):
+def detail(account_id, *args, **kwargs):
     """Account detail page with recent transactions."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     account = Account.query.filter_by(id=account_id, user_id=current_user.id).first_or_404()
     
     # Get recent transactions for this account
@@ -53,7 +53,7 @@ def refresh(*args, **kwargs):
     """Refresh account data from Plaid."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})

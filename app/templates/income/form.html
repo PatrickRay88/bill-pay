@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3" style="max-width:640px;">
+  <h2 class="mb-3">{{ title }}</h2>
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="mb-3">{{ form.source.label(class='form-label') }} {{ form.source(class='form-control') }}</div>
+    <div class="mb-3">{{ form.gross_amount.label(class='form-label') }} {{ form.gross_amount(class='form-control') }}</div>
+    <div class="mb-3">{{ form.net_amount.label(class='form-label') }} {{ form.net_amount(class='form-control') }}</div>
+    <div class="mb-3">{{ form.frequency.label(class='form-label') }} {{ form.frequency(class='form-select') }}</div>
+    <div class="mb-3">{{ form.date.label(class='form-label') }} {{ form.date(class='form-control') }}</div>
+    <div class="mb-3">{{ form.notes.label(class='form-label') }} {{ form.notes(class='form-control', rows=3) }}</div>
+    <button class="btn btn-primary" type="submit">Save</button>
+    <a href="{{ url_for('income.index') }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

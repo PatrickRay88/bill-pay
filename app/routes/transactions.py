@@ -12,7 +12,7 @@ def index(*args, **kwargs):
     """Transactions listing page with filters."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     # Get filter parameters
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
@@ -72,7 +72,7 @@ def refresh(*args, **kwargs):
     """Refresh transaction data from Plaid."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})
@@ -95,11 +95,11 @@ def refresh(*args, **kwargs):
         return jsonify({"success": False, "message": message})
 
 @transactions_bp.route('/<int:transaction_id>')
-def detail(*args, **kwargs):
+def detail(transaction_id, *args, **kwargs):
     """Transaction detail page."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     account = Account.query.get(transaction.account_id)
     
@@ -111,11 +111,11 @@ def detail(*args, **kwargs):
     )
 
 @transactions_bp.route('/<int:transaction_id>/edit-note', methods=['POST'])
-def edit_note(*args, **kwargs):
+def edit_note(transaction_id, *args, **kwargs):
     """Update the note for a transaction."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for(\'auth.auto_login\'))
+        return redirect(url_for('auth.auto_login'))
     transaction = Transaction.query.filter_by(id=transaction_id, user_id=current_user.id).first_or_404()
     
     notes = request.json.get('notes', '')

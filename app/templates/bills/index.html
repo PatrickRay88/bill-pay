@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Bills</h2>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('bills.add') }}" class="btn btn-sm btn-primary">Add Bill</a>
+      <a href="/dashboard" class="btn btn-sm btn-secondary">Dashboard</a>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-4">
+      <h6 class="text-muted">Upcoming</h6>
+      <ul class="list-group mb-3">
+        {% for bill in upcoming_bills %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ bill.name }}</strong>
+              <div class="small text-muted">Due {{ bill.due_date }}</div>
+            </div>
+            <span class="badge bg-primary rounded-pill">${{ bill.amount }}</span>
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="col-md-4">
+      <h6 class="text-muted">Past Due</h6>
+      <ul class="list-group mb-3">
+        {% for bill in past_due_bills %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ bill.name }}</strong>
+              <div class="small text-muted">Due {{ bill.due_date }}</div>
+            </div>
+            <span class="badge bg-danger rounded-pill">${{ bill.amount }}</span>
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="col-md-4">
+      <h6 class="text-muted">Paid</h6>
+      <ul class="list-group mb-3">
+        {% for bill in paid_bills %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ bill.name }}</strong>
+              <div class="small text-muted">Paid {{ bill.due_date }}</div>
+            </div>
+            <span class="badge bg-success rounded-pill">${{ bill.amount }}</span>
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

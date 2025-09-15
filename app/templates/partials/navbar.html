@@ -1,7 +1,12 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
-        <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">
+        <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard.index') }}">
             <i class="fas fa-wallet me-2"></i> BillPay
+            {% if PLAID_ENV|lower == 'sandbox' %}
+            <span class="badge bg-warning text-dark ms-2" title="Plaid Sandbox Environment">Sandbox</span>
+            {% elif PLAID_ENV|lower == 'development' %}
+            <span class="badge bg-secondary ms-2" title="Plaid Development Environment">Dev</span>
+            {% endif %}
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>
@@ -42,7 +47,7 @@
             <ul class="navbar-nav">
                 {% if not current_user.plaid_access_token %}
                 <li class="nav-item">
-                    <button id="plaid-link-button" class="btn btn-outline-light me-2">
+                    <button class="btn btn-outline-light me-2 plaid-link-button">
                         <i class="fas fa-link me-1"></i> Connect Bank
                     </button>
                 </li>

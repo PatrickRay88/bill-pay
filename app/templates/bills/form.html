@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3" style="max-width:640px;">
+  <h2 class="mb-3">{{ title }}</h2>
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="mb-3">{{ form.name.label(class='form-label') }} {{ form.name(class='form-control') }}</div>
+    <div class="mb-3">{{ form.amount.label(class='form-label') }} {{ form.amount(class='form-control') }}</div>
+    <div class="mb-3">{{ form.due_date.label(class='form-label') }} {{ form.due_date(class='form-control') }}</div>
+    <div class="mb-3">{{ form.frequency.label(class='form-label') }} {{ form.frequency(class='form-select') }}</div>
+    <div class="mb-3">{{ form.category.label(class='form-label') }} {{ form.category(class='form-control') }}</div>
+    <div class="mb-3">{{ form.status.label(class='form-label') }} {{ form.status(class='form-select') }}</div>
+    <div class="form-check form-switch mb-3">{{ form.autopay(class='form-check-input') }} {{ form.autopay.label(class='form-check-label') }}</div>
+    <div class="mb-3">{{ form.notes.label(class='form-label') }} {{ form.notes(class='form-control', rows=3) }}</div>
+    <button class="btn btn-primary" type="submit">Save</button>
+    <a href="{{ url_for('bills.index') }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

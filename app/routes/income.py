@@ -10,9 +10,8 @@ income_bp = Blueprint('income', __name__, url_prefix='/income')
 @income_bp.route('/')
 def index(*args, **kwargs):
     """Income overview page."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     # Get all income sources for the current user
     incomes = Income.query.filter_by(user_id=current_user.id).order_by(Income.date.desc()).all()
     
@@ -38,9 +37,8 @@ def index(*args, **kwargs):
 @income_bp.route('/add', methods=['GET', 'POST'])
 def add(*args, **kwargs):
     """Add a new income source."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     form = IncomeForm()
     if form.validate_on_submit():
         income = Income(
@@ -62,9 +60,8 @@ def add(*args, **kwargs):
 @income_bp.route('/<int:income_id>/edit', methods=['GET', 'POST'])
 def edit(income_id, *args, **kwargs):
     """Edit an existing income source."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     income = Income.query.filter_by(id=income_id, user_id=current_user.id).first_or_404()
     
     # Check if it's a Plaid-detected income
@@ -82,9 +79,8 @@ def edit(income_id, *args, **kwargs):
 @income_bp.route('/<int:income_id>/delete', methods=['POST'])
 def delete(income_id, *args, **kwargs):
     """Delete an income source."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     income = Income.query.filter_by(id=income_id, user_id=current_user.id).first_or_404()
     
     # Check if it's a Plaid-detected income
@@ -101,9 +97,8 @@ def delete(income_id, *args, **kwargs):
 @income_bp.route('/simulator')
 def simulator(*args, **kwargs):
     """Paycheck simulator tool."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     # Get all income sources for the current user
     incomes = Income.query.filter_by(user_id=current_user.id).all()
     
@@ -112,9 +107,8 @@ def simulator(*args, **kwargs):
 @income_bp.route('/refresh')
 def refresh(*args, **kwargs):
     """Refresh income data from Plaid."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})

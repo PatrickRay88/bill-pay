@@ -161,6 +161,86 @@ flask db upgrade
 ```
 This will create `billpay.db` automatically with all tables. No further action needed for local testing.
 
+## Authentication & User Management
+
+BillPay now includes a real authentication system (replacing prior development auto-login) with:
+
+- User registration (`/register`)
+- Login (`/login`)
+- Logout (`/logout`)
+- Password reset request (`/forgot-password`) and reset (`/reset-password/<token>`)
+- Role support: `user` (default) and `admin`
+- Admin panel placeholder (`/admin`)
+
+### Registration Flow
+1. Visit `/register`
+2. Provide a unique email + password (min 8 chars)
+3. After successful registration you're prompted to log in.
+
+### Login Flow
+1. Visit `/login`
+2. Enter email + password
+3. Optional Remember Me (session persistence)
+4. Redirected to dashboard on success.
+
+### Password Reset (Development Mode)
+- Visit `/forgot-password` and enter your email.
+- A signed token link is logged to the server console and also shown in the UI (development convenience).
+- Navigate to the link to set a new password.
+- Tokens expire after 1 hour (configurable via code change).
+
+### Roles
+- Users are created with role `user`.
+- Admins have `role='admin'` and access the `/admin` route.
+- A convenience property `User.is_admin` is available for checks and an `admin_required` decorator protects admin routes.
+
+### Seeding an Admin User
+Set environment variables before first run:
+```
+ADMIN_SEED_EMAIL=admin@example.com
+ADMIN_SEED_PASSWORD=ChangeMe123!
+```
+On startup if that email does not exist it is created with `role='admin'`.
+
+PowerShell example:
+```powershell
+$Env:ADMIN_SEED_EMAIL = "admin@example.com"
+$Env:ADMIN_SEED_PASSWORD = "ChangeMe123!"
+python run.py
+```
+
+### Database Schema Change (Role Column)
+The `user` table now includes a `role` column. For SQLite dev environments the app performs a light auto-migration (adds the column if missing). For production (e.g., Postgres), run an Alembic migration:
+```powershell
+$Env:FLASK_APP = "run.py"
+flask db migrate -m "Add user role"
+flask db upgrade
+```
+
+### Security Notes / Hardening Roadmap
+- Replace dev token display with real email delivery (Flask-Mail, SendGrid, etc.)
+- Add rate limiting (Flask-Limiter) to login and password reset endpoints
+- Add email confirmation step for new users (optional)
+- Add multi-factor authentication for admin users
+- Enforce stronger password complexity in production
+- Track last login and failed attempts for auditing
+
+### Testing the Auth Stack Quickly
+```powershell
+# (Optional) seed an admin
+$Env:ADMIN_SEED_EMAIL = "admin@example.com"
+$Env:ADMIN_SEED_PASSWORD = "ChangeMe123!"
+
+# Run the app
+python run.py
+
+# Steps:
+# 1. Register a normal user at http://127.0.0.1:5000/register
+# 2. Log out, then log in at /login
+# 3. Request password reset at /forgot-password and use displayed token
+# 4. Log in as admin with seeded credentials and visit /admin
+```
+
 
 ## Plaid Integration
 

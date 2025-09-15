@@ -14,6 +14,7 @@ class User(db.Model, UserMixin):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     plaid_access_token = db.Column(db.String(255))  # encrypted
     item_id = db.Column(db.String(100))  # Plaid item ID
+    role = db.Column(db.String(20), default='user', nullable=False)  # 'user' or 'admin'
 
     # Relationships
     accounts = db.relationship('Account', backref='user', lazy=True, cascade="all, delete-orphan")
@@ -29,6 +30,10 @@ class User(db.Model, UserMixin):
     
     def __repr__(self):
         return f'<User {self.email}>'
+
+    @property
+    def is_admin(self):
+        return self.role == 'admin'
 
 
 class Account(db.Model):

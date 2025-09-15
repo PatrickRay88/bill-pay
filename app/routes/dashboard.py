@@ -5,7 +5,6 @@ from sqlalchemy import func
 from app import db
 from app.models import Account, Transaction, Bill, Income
 from app.plaid_service import create_link_token
-from app.routes.auth import create_test_user
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
@@ -17,10 +16,9 @@ def home():
 @dashboard_bp.route('/dashboard')
 def index():
     """Dashboard with financial overview."""
-    # Ensure we have a test user logged in
+    # Redirect to login if not authenticated
     if not current_user.is_authenticated:
-        from app.routes.auth import auto_login
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     
     # Initialize Plaid link token if needed
     link_token = None
@@ -52,6 +50,9 @@ def index():
     recent_transactions = Transaction.query.filter_by(user_id=current_user.id)\
         .order_by(Transaction.date.desc())\
         .limit(5).all()
+
+    # Count linked accounts for conditional UI (avoid showing unlink if no data yet)
+    account_count = Account.query.filter_by(user_id=current_user.id).count()
     
     # Get transaction data for charts
     # For income vs. expenses chart

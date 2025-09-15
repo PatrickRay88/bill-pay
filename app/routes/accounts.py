@@ -2,30 +2,33 @@ from flask import Blueprint, render_template, jsonify, flash, redirect, url_for
 from flask_login import current_user
 from app import db
 from app.models import Account, Transaction
-from app.plaid_service import fetch_accounts
+from app.plaid_service import fetch_accounts, create_link_token
 
 accounts_bp = Blueprint('accounts', __name__, url_prefix='/accounts')
 
 @accounts_bp.route('/')
 def index(*args, **kwargs):
-    """Accounts overview page."""
-    # Ensure user is authenticated
+    """Accounts overview page with optional Plaid connect button if not linked."""
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
-    # Get all accounts for the current user
+        return redirect(url_for('auth.login'))
+
+    # Generate a link token if user not yet linked to Plaid
+    link_token = None
+    if not current_user.plaid_access_token:
+        link_token = create_link_token(current_user.id)
+
     accounts = Account.query.filter_by(user_id=current_user.id).all()
-    
-    # Group accounts by type for better organization
+
+    # Group accounts by type
     account_groups = {}
     for account in accounts:
-        if account.type not in account_groups:
-            account_groups[account.type] = []
-        account_groups[account.type].append(account)
-    
+        account_groups.setdefault(account.type, []).append(account)
+
     return render_template(
         'accounts/index.html',
         title='Accounts',
-        account_groups=account_groups
+        account_groups=account_groups,
+        link_token=link_token
     )
 
 @accounts_bp.route('/<int:account_id>')
@@ -33,7 +36,7 @@ def detail(account_id, *args, **kwargs):
     """Account detail page with recent transactions."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     account = Account.query.filter_by(id=account_id, user_id=current_user.id).first_or_404()
     
     # Get recent transactions for this account
@@ -53,7 +56,7 @@ def refresh(*args, **kwargs):
     """Refresh account data from Plaid."""
     # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})

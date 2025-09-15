@@ -1,4 +1,5 @@
 from flask import Flask
+import os
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -12,7 +13,8 @@ from config import config
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-login_manager.login_view = 'auth.auto_login'
+# Redirect unauthenticated users to the real login route (auto_login removed)
+login_manager.login_view = 'auth.login'
 csrf = CSRFProtect()
 bcrypt = Bcrypt()
 
@@ -84,18 +86,50 @@ def create_app(config_name='default'):
     # Create database tables
     with app.app_context():
         db.create_all()
-        
-        # Create test user
-        from app.routes.auth import create_test_user
-        create_test_user()
+        # Lightweight migration helper: add 'role' column if missing (SQLite dev convenience)
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        cols = [c['name'] for c in inspector.get_columns('user')]
+        if 'role' not in cols:
+            if db.engine.url.get_backend_name() == 'sqlite':
+                # SQLAlchemy 2.x: use a connection and commit explicitly
+                try:
+                    with db.engine.connect() as conn:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'"))
+                        conn.commit()
+                    app.logger.info("Added missing 'role' column to user table (SQLite auto-migrate)")
+                except Exception as e:
+                    app.logger.error(f"Failed to auto-add role column: {e}")
+            else:
+                app.logger.warning("'role' column missing; run migrations to add it.")
+        # Optional admin seed via env vars
+        admin_email = os.environ.get('ADMIN_SEED_EMAIL')
+        admin_password = os.environ.get('ADMIN_SEED_PASSWORD')
+        if admin_email and admin_password:
+            from app.models import User
+            if not User.query.filter_by(email=admin_email.lower()).first():
+                u = User(email=admin_email.lower(), role='admin')
+                u.set_password(admin_password)
+                db.session.add(u)
+                db.session.commit()
+                app.logger.info(f"Seeded admin user {admin_email}")
         
     @app.context_processor
     def inject_plaid_credentials():
+        from flask_login import current_user
+        from app.models import Account
+        acct_count = 0
+        if current_user.is_authenticated:
+            try:
+                acct_count = Account.query.filter_by(user_id=current_user.id).count()
+            except Exception:
+                acct_count = 0
         return dict(
             PLAID_CLIENT_ID=app.config['PLAID_CLIENT_ID'],
             PLAID_ENV=app.config['PLAID_ENV'],
             PLAID_PRODUCTS=app.config['PLAID_PRODUCTS'],
-            PLAID_COUNTRY_CODES=app.config['PLAID_COUNTRY_CODES']
+            PLAID_COUNTRY_CODES=app.config['PLAID_COUNTRY_CODES'],
+            ACCOUNT_COUNT=acct_count
         )
     
     return app

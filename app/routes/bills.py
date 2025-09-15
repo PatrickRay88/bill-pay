@@ -11,9 +11,8 @@ bills_bp = Blueprint('bills', __name__, url_prefix='/bills')
 @bills_bp.route('/')
 def index(*args, **kwargs):
     """Bills overview page."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     # Get all bills for the current user
     bills = Bill.query.filter_by(user_id=current_user.id).order_by(Bill.due_date).all()
     
@@ -34,9 +33,8 @@ def index(*args, **kwargs):
 @bills_bp.route('/add', methods=['GET', 'POST'])
 def add(*args, **kwargs):
     """Add a new bill."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     form = BillForm()
     if form.validate_on_submit():
         bill = Bill(
@@ -60,9 +58,8 @@ def add(*args, **kwargs):
 @bills_bp.route('/<int:bill_id>/edit', methods=['GET', 'POST'])
 def edit(bill_id, *args, **kwargs):
     """Edit an existing bill."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     bill = Bill.query.filter_by(id=bill_id, user_id=current_user.id).first_or_404()
     
     # Check if it's a Plaid-detected bill
@@ -80,9 +77,8 @@ def edit(bill_id, *args, **kwargs):
 @bills_bp.route('/<int:bill_id>/delete', methods=['POST'])
 def delete(bill_id, *args, **kwargs):
     """Delete a bill."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return redirect(url_for('auth.login'))
     bill = Bill.query.filter_by(id=bill_id, user_id=current_user.id).first_or_404()
     
     # Check if it's a Plaid-detected bill
@@ -99,9 +95,8 @@ def delete(bill_id, *args, **kwargs):
 @bills_bp.route('/<int:bill_id>/toggle-status', methods=['POST'])
 def toggle_status(bill_id, *args, **kwargs):
     """Toggle a bill's status between paid and unpaid."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
     bill = Bill.query.filter_by(id=bill_id, user_id=current_user.id).first_or_404()
     
     if bill.status == 'paid':
@@ -115,9 +110,8 @@ def toggle_status(bill_id, *args, **kwargs):
 @bills_bp.route('/refresh')
 def refresh(*args, **kwargs):
     """Refresh bill data from Plaid."""
-    # Ensure user is authenticated
     if not current_user.is_authenticated:
-        return redirect(url_for('auth.auto_login'))
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
     if not current_user.plaid_access_token:
         flash("No Plaid connection found. Please connect your bank first.", "warning")
         return jsonify({"success": False, "message": "No Plaid connection found"})

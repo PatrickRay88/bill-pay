@@ -65,3 +65,33 @@ coverage.xml
 
 # Development
 migrations/versions/
+
+# Security / secrets
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.der
+
+# Pytest cache (already partially covered but explicit)
+.pytest_cache/
+
+# Coverage artifacts
+coverage_html/
+
+# Local export / dump files
+*.dump
+*.backup
+*.bak
+*.orig
+
+# Node or front-end builds (if later added)
+node_modules/
+*.tsbuildinfo
+
+# Misc
+*.DS_Store
+*.env.local
+*.env.development
+*.env.production

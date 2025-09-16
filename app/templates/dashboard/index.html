@@ -18,15 +18,7 @@
     </div>
 {% endif %}
 
-{# Show unlink notice only when user truly has linked data (token + at least one account) #}
-{% if current_user.plaid_access_token and account_count and account_count > 0 %}
-<div class="alert alert-secondary d-flex justify-content-between align-items-center py-2 px-3 mb-3" role="alert">
-    <div class="small mb-0">Plaid linked (sandbox). You can unlink to reset demo data.</div>
-    <div class="d-flex gap-2">
-        <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger">Unlink Plaid</button>
-    </div>
-</div>
-{% endif %}
+{# Unlink banner removed per request; unlink functionality remains on Accounts page #}
 
 <!-- Dashboard summary cards -->
 <div class="row mb-4">
@@ -47,7 +39,13 @@
             <div class="card-body">
                 <div class="label">Monthly Income</div>
                 <div class="value format-currency">{{ monthly_income }}</div>
-                <small class="text-muted">Combined from all sources</small>
+                                <div class="d-flex justify-content-between align-items-center mt-1">
+                                    <small class="text-muted">{% if income_mode=='estimated' %}Estimated (sum net entries){% else %}Calculated (avg net * Fridays){% endif %}</small>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Income mode">
+                                        <button class="btn btn-outline-secondary income-mode-btn {% if income_mode=='estimated' %}active{% endif %}" data-mode="estimated">Est</button>
+                                        <button class="btn btn-outline-secondary income-mode-btn {% if income_mode=='calculated' %}active{% endif %}" data-mode="calculated">Calc</button>
+                                    </div>
+                                </div>
             </div>
         </div>
     </div>

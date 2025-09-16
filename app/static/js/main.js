@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initGlobalPlaidButton();
     initRefreshButtons();
     initUnlinkPlaid();
+    initIncomeModeToggle();
     
     // Initialize tooltips
     var tooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
@@ -35,6 +36,24 @@ function initPlaidLink() {
     });
     linkButtons.forEach(btn => {
         btn.addEventListener('click', (e) => { e.preventDefault(); handler.open(); });
+    });
+}
+
+function initIncomeModeToggle(){
+    const buttons = document.querySelectorAll('.income-mode-btn');
+    if(!buttons.length) return;
+    buttons.forEach(btn => {
+        btn.addEventListener('click', function(){
+            const mode = this.dataset.mode;
+            if(this.classList.contains('active')) return; // no change
+            fetch('/dashboard/income-mode', {
+                method:'POST',
+                headers:{'Content-Type':'application/json', 'X-CSRFToken': getCSRFToken()},
+                body: JSON.stringify({mode})
+            }).then(r=>r.json()).then(d=>{
+                if(d.success){ window.location.reload(); } else { showAlert('danger', d.error || 'Failed setting income mode'); }
+            }).catch(()=>showAlert('danger','Network error setting mode'));
+        });
     });
 }
 

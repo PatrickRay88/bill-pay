@@ -1,9 +1,10 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, session
+from flask import Blueprint, render_template, redirect, url_for, flash, session, request, jsonify
 from flask_login import current_user
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 from app import db
 from app.models import Account, Transaction, Bill, Income
+from app.utils.time import fridays_in_month, utc_now
 from app.plaid_service import create_link_token
 
 dashboard_bp = Blueprint('dashboard', __name__)
@@ -25,9 +26,24 @@ def index():
     net_worth = db.session.query(func.sum(Account.current_balance)).\
         filter(Account.user_id == current_user.id).scalar() or 0
     
-    # Get monthly income (sum of all income sources)
-    monthly_income = db.session.query(func.sum(Income.net_amount)).\
-        filter(Income.user_id == current_user.id).scalar() or 0
+    # Income mode: 'estimated' (current behavior) or 'calculated'
+    mode = session.get('income_mode', 'estimated')
+    # Base incomes
+    incomes = Income.query.filter_by(user_id=current_user.id).all()
+    total_net = sum(i.net_amount or 0 for i in incomes)
+    monthly_income = 0
+    if mode == 'estimated':
+        monthly_income = total_net  # existing interpretation: already monthly net amounts
+    else:
+        # Calculated: derive per-pay amount (average net entry) * number of Fridays this month
+        now_dt = utc_now()
+        year, month = now_dt.year, now_dt.month
+        friday_count = fridays_in_month(year, month)
+        if incomes:
+            avg_pay = total_net / len([i for i in incomes if (i.net_amount or 0) > 0]) if total_net else 0
+            monthly_income = avg_pay * friday_count
+        else:
+            monthly_income = 0
     
     # Get monthly bills (sum of all bills)
     monthly_bills = db.session.query(func.sum(Bill.amount)).\
@@ -100,5 +116,18 @@ def index():
         monthly_bills=monthly_bills,
         upcoming_bills=upcoming_bills,
         recent_transactions=recent_transactions,
-        chart_data=chart_data
+        chart_data=chart_data,
+        account_count=account_count,
+        income_mode=mode
     )
+
+@dashboard_bp.route('/dashboard/income-mode', methods=['POST'])
+def set_income_mode():
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode')
+    if mode not in ('estimated','calculated'):
+        return jsonify({'error': 'Invalid mode'}), 400
+    session['income_mode'] = mode
+    return jsonify({'success': True, 'mode': mode})

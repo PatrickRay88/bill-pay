@@ -10,6 +10,11 @@
           <i class="fa fa-link me-1"></i> Connect Bank
         </button>
       {% endif %}
+      {% if current_user.plaid_access_token %}
+        <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger me-2" data-bs-toggle="tooltip" title="Unlink Plaid and remove imported data">
+          <i class="fa fa-unlink me-1"></i> Unlink
+        </button>
+      {% endif %}
       <button class="btn btn-sm btn-outline-primary me-2" id="refresh-accounts-btn">Refresh Accounts</button>
       <a href="/dashboard" class="btn btn-sm btn-secondary">Dashboard</a>
     </div>

@@ -123,6 +123,7 @@ def create_app(config_name='default'):
     def inject_plaid_credentials():
         from flask_login import current_user
         from app.models import Account
+        from app.utils.time import utc_now
         acct_count = 0
         if current_user.is_authenticated:
             try:
@@ -134,7 +135,8 @@ def create_app(config_name='default'):
             PLAID_ENV=app.config['PLAID_ENV'],
             PLAID_PRODUCTS=app.config['PLAID_PRODUCTS'],
             PLAID_COUNTRY_CODES=app.config['PLAID_COUNTRY_CODES'],
-            ACCOUNT_COUNT=acct_count
+            ACCOUNT_COUNT=acct_count,
+            CURRENT_TIME=utc_now()
         )
     
     @app.route('/')

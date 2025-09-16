@@ -9,54 +9,58 @@
     </div>
   </div>
   <div class="row">
+    {% macro bill_list(title, bills, style) %}
     <div class="col-md-4">
-      <h6 class="text-muted">Upcoming</h6>
+      <h6 class="text-muted">{{ title }}</h6>
       <ul class="list-group mb-3">
-        {% for bill in upcoming_bills %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ bill.name }}</strong>
-              <div class="small text-muted">Due {{ bill.due_date }}</div>
+        {% for bill in bills %}
+          <li class="list-group-item bill-item {% if bill.status=='paid' %}paid{% endif %}" data-bill-id="{{ bill.id }}">
+            <div class="d-flex justify-content-between align-items-start w-100">
+              <div>
+                <strong>{{ bill.name }}</strong>
+                <div class="small text-muted">{% if title=='Paid' %}Paid{% else %}Due{% endif %} {{ bill.due_date }}</div>
+                {% if bill.plaid_bill_id %}<div class="badge bg-light text-dark border mt-1">Auto</div>{% endif %}
+                {% if bill.notes %}<div class="small text-muted text-truncate" style="max-width:180px;">{{ bill.notes }}</div>{% endif %}
+              </div>
+              <div class="text-end">
+                <div class="fw-bold">${{ bill.amount }}</div>
+                <div class="btn-group btn-group-sm mt-1">
+                  <button class="btn btn-outline-secondary toggle-paid-btn" data-bill-id="{{ bill.id }}" data-current="{{ bill.status }}" title="Toggle Paid">
+                    {% if bill.status=='paid' %}<i class="fa fa-undo"></i>{% else %}<i class="fa fa-check"></i>{% endif %}
+                  </button>
+                  <a href="{{ url_for('bills.edit', bill_id=bill.id) }}" class="btn btn-outline-primary" title="Edit"><i class="fa fa-edit"></i></a>
+                  {% if not bill.plaid_bill_id %}
+                  <form method="post" action="{{ url_for('bills.delete', bill_id=bill.id) }}" onsubmit="return confirm('Delete this bill?');" style="display:inline;">
+                    <button class="btn btn-outline-danger" title="Delete"><i class="fa fa-trash"></i></button>
+                  </form>
+                  {% endif %}
+                </div>
+              </div>
             </div>
-            <span class="badge bg-primary rounded-pill">${{ bill.amount }}</span>
           </li>
         {% else %}
           <li class="list-group-item text-muted">None</li>
         {% endfor %}
       </ul>
     </div>
-    <div class="col-md-4">
-      <h6 class="text-muted">Past Due</h6>
-      <ul class="list-group mb-3">
-        {% for bill in past_due_bills %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ bill.name }}</strong>
-              <div class="small text-muted">Due {{ bill.due_date }}</div>
-            </div>
-            <span class="badge bg-danger rounded-pill">${{ bill.amount }}</span>
-          </li>
-        {% else %}
-          <li class="list-group-item text-muted">None</li>
-        {% endfor %}
-      </ul>
-    </div>
-    <div class="col-md-4">
-      <h6 class="text-muted">Paid</h6>
-      <ul class="list-group mb-3">
-        {% for bill in paid_bills %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ bill.name }}</strong>
-              <div class="small text-muted">Paid {{ bill.due_date }}</div>
-            </div>
-            <span class="badge bg-success rounded-pill">${{ bill.amount }}</span>
-          </li>
-        {% else %}
-          <li class="list-group-item text-muted">None</li>
-        {% endfor %}
-      </ul>
-    </div>
+    {% endmacro %}
+    {{ bill_list('Upcoming', upcoming_bills, 'primary') }}
+    {{ bill_list('Past Due', past_due_bills, 'danger') }}
+    {{ bill_list('Paid', paid_bills, 'success') }}
   </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.toggle-paid-btn').forEach(btn => {
+    btn.addEventListener('click', function(){
+      const id = this.dataset.billId;
+      fetch(`/bills/${id}/toggle-status`, { method: 'POST', headers: { 'X-CSRFToken': getCSRFToken() }})
+        .then(r=>r.json())
+        .then(d=>{ if(d.success){ window.location.reload(); } else { alert('Failed: '+(d.message||'error')); }})
+        .catch(()=>alert('Toggle failed'));
+    });
+  });
+});
+function getCSRFToken(){ const m=document.querySelector('meta[name="csrf-token"]'); return m?m.getAttribute('content'):''; }
+</script>
 {% endblock %}

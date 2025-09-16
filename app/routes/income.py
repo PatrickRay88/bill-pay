@@ -1,37 +1,83 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import current_user
+from datetime import date
 from app import db
 from app.models import Income
 from app.forms import IncomeForm
 from app.plaid_service import fetch_income
+from app.utils.time import fridays_in_month, utc_now
 
 income_bp = Blueprint('income', __name__, url_prefix='/income')
 
 @income_bp.route('/')
 def index(*args, **kwargs):
-    """Income overview page."""
+    """Income overview page with projected vs actual monthly total logic.
+
+    Rules:
+    - While the month is in progress and not all expected weekly/bi-weekly paychecks
+      have been recorded, show a projection: (average per-pay net) * (Fridays in month)
+      plus any monthly-frequency incomes (treated as already monthly).
+    - Once the number of recorded weekly/bi-weekly pay entries for the current month
+      is >= the total Fridays in the month, switch to the ACTUAL sum of that month's
+      income entries (net where available, fallback gross).
+    - If there are zero weekly/bi-weekly entries yet, projection = 0 (or just monthly incomes).
+    Assumptions:
+      * Weekly cadence is the baseline for projection (using Fridays as pay anchors).
+      * Bi-weekly entries are treated the same for averaging; (a refinement could
+        weight them differently, deferred for simplicity per current requirement).
+    """
     if not current_user.is_authenticated:
         return redirect(url_for('auth.login'))
-    # Get all income sources for the current user
+
+    # All incomes (for table display)
     incomes = Income.query.filter_by(user_id=current_user.id).order_by(Income.date.desc()).all()
-    
-    # Calculate totals
-    weekly_total = sum(i.gross_amount for i in incomes if i.frequency == 'weekly')
-    biweekly_total = sum(i.gross_amount for i in incomes if i.frequency == 'bi-weekly')
-    monthly_total = sum(i.gross_amount for i in incomes if i.frequency == 'monthly')
-    
-    # Estimate monthly income
-    estimated_monthly = (
-        (weekly_total * 4.33) +  # Weekly → Monthly
-        (biweekly_total * 2.17) +  # Bi-weekly → Monthly
-        monthly_total  # Already monthly
-    )
-    
+
+    # Current month context
+    now_dt = utc_now()
+    year, month = now_dt.year, now_dt.month
+    fridays_total = fridays_in_month(year, month)
+
+    current_month_incomes = [i for i in incomes if i.date.year == year and i.date.month == month]
+
+    # Separate weekly-like and monthly incomes for current month
+    weeklike = [i for i in current_month_incomes if i.frequency in ('weekly', 'bi-weekly')]
+    monthly_entries = [i for i in current_month_incomes if i.frequency == 'monthly']
+
+    # Net amounts (fallback to gross if net missing)
+    def net_or_gross(entry: Income) -> float:
+        return entry.net_amount if entry.net_amount is not None else entry.gross_amount
+
+    weeklike_total_net = sum(net_or_gross(i) for i in weeklike)
+    monthly_total_net = sum(net_or_gross(i) for i in monthly_entries)
+
+    # Actual month sum (all entries)
+    actual_month_total = sum(net_or_gross(i) for i in current_month_incomes)
+
+    paychecks_recorded = len(weeklike)
+    avg_pay = (weeklike_total_net / paychecks_recorded) if paychecks_recorded else 0
+
+    # Determine if full month realized (all expected weekly pay events captured)
+    full_month_realized = paychecks_recorded >= fridays_total and paychecks_recorded > 0
+
+    if full_month_realized:
+        estimated_monthly = actual_month_total
+        is_projection = False
+    else:
+        projected_weeklike = avg_pay * fridays_total if paychecks_recorded else 0
+        estimated_monthly = projected_weeklike + monthly_total_net
+        is_projection = True
+
     return render_template(
         'income/index.html',
         title='Income',
         incomes=incomes,
-        estimated_monthly=estimated_monthly
+        estimated_monthly=estimated_monthly,
+        is_projection=is_projection,
+        actual_month_total=actual_month_total,
+        avg_pay=avg_pay,
+        fridays_total=fridays_total,
+        paychecks_recorded=paychecks_recorded,
+        month_year=date(year, month, 1)
     )
 
 @income_bp.route('/add', methods=['GET', 'POST'])

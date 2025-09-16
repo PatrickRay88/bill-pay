@@ -392,6 +392,86 @@ def detect_recurring_transactions(user_id):
         db.session.rollback()
         return False, f"Error detecting recurring transactions: {str(e)}"
 
+def sync_liability_bills(user, response):
+    """Transform Plaid liabilities response into Bill records (credit, student, mortgage).
+
+    Idempotent: identifies bills by (user_id, plaid_bill_id).
+    Uses existing Bill.plaid_bill_id field to store the Plaid account_id for liability-derived bills.
+    Updates amount & due_date if an entry already exists.
+    """
+    created = 0
+    updated = 0
+    try:
+        # Defensive: response may lack liabilities sub-structure in some sandbox cases
+        liabilities = getattr(response, 'liabilities', None)
+        if not liabilities:
+            return True, "No liabilities section present"
+
+        accounts_by_id = {acct.account_id: acct for acct in getattr(response, 'accounts', [])}
+
+        # Helper to upsert a bill
+        def upsert(plaid_account_id, name, amount, due_date, category, note_suffix):
+            nonlocal created, updated
+            if not plaid_account_id or due_date is None:
+                return
+            bill = Bill.query.filter_by(user_id=user.id, plaid_bill_id=plaid_account_id).first()
+            if not bill:
+                bill = Bill(
+                    user_id=user.id,
+                    plaid_bill_id=plaid_account_id,
+                    name=name,
+                    amount=amount or 0,
+                    due_date=due_date,
+                    category=category,
+                    status='unpaid',
+                    notes=f"Automatically created from Plaid liabilities ({note_suffix})"
+                )
+                db.session.add(bill)
+                created += 1
+            else:
+                # Update if changed
+                changed = False
+                if amount is not None and abs((bill.amount or 0) - amount) > 0.009:
+                    bill.amount = amount
+                    changed = True
+                if due_date and bill.due_date != due_date:
+                    bill.due_date = due_date
+                    changed = True
+                if changed:
+                    updated += 1
+
+        # Credit cards
+        for credit in getattr(liabilities, 'credit', []) or []:
+            acct = accounts_by_id.get(credit.account_id)
+            name = f"{acct.name if acct else 'Credit Card'} Payment"
+            amount = getattr(credit, 'minimum_payment_amount', None) or getattr(credit, 'last_statement_balance', None) or 0
+            due = getattr(credit, 'next_payment_due_date', None)
+            upsert(credit.account_id, name, amount, due, 'Credit Card', 'credit')
+
+        # Student loans
+        for loan in getattr(liabilities, 'student', []) or []:
+            acct = accounts_by_id.get(loan.account_id)
+            base_name = getattr(loan, 'loan_name', None) or (acct.name if acct else 'Student Loan')
+            name = f"{base_name} Payment"
+            amount = getattr(loan, 'minimum_payment_amount', None) or 0
+            due = getattr(loan, 'next_payment_due_date', None)
+            upsert(loan.account_id, name, amount, due, 'Student Loan', 'student')
+
+        # Mortgages
+        for mortgage in getattr(liabilities, 'mortgage', []) or []:
+            acct = accounts_by_id.get(mortgage.account_id)
+            name = f"{acct.name if acct else 'Mortgage'} Payment"
+            amount = getattr(mortgage, 'next_monthly_payment', None) or 0
+            due = getattr(mortgage, 'next_payment_due_date', None)
+            upsert(mortgage.account_id, name, amount, due, 'Mortgage', 'mortgage')
+
+        db.session.commit()
+        return True, f"Liabilities updated (created {created}, updated {updated})"
+    except Exception as e:
+        current_app.logger.error(f"sync_liability_bills error: {e}")
+        db.session.rollback()
+        return False, f"Failed updating liability bills: {e}"
+
 def fetch_liabilities(user):
     """Fetch liability data from Plaid and store it in the database."""
     try:
@@ -404,102 +484,8 @@ def fetch_liabilities(user):
         # Request liabilities
         request = LiabilitiesGetRequest(access_token=access_token)
         response = plaid_client.liabilities_get(request)
-        
-        # Process credit cards
-        if hasattr(response.liabilities, 'credit'):
-            for credit in response.liabilities.credit:
-                for account in response.accounts:
-                    if account.account_id == credit.account_id:
-                        # Look for existing bill
-                        bill_name = f"{account.name} Payment"
-                        bill = Bill.query.filter_by(
-                            user_id=user.id,
-                            name=bill_name,
-                            plaid_bill_id=credit.account_id
-                        ).first()
-                        
-                        if not bill:
-                            # Create new bill
-                            bill = Bill(
-                                user_id=user.id,
-                                plaid_bill_id=credit.account_id,
-                                name=bill_name,
-                                amount=credit.minimum_payment_amount or credit.last_statement_balance or 0,
-                                due_date=credit.next_payment_due_date,
-                                category="Credit Card",
-                                status="unpaid",
-                                notes="Automatically created from Plaid liabilities"
-                            )
-                            db.session.add(bill)
-                        else:
-                            # Update existing bill
-                            bill.amount = credit.minimum_payment_amount or credit.last_statement_balance or 0
-                            bill.due_date = credit.next_payment_due_date
-        
-        # Process student loans
-        if hasattr(response.liabilities, 'student'):
-            for loan in response.liabilities.student:
-                for account in response.accounts:
-                    if account.account_id == loan.account_id:
-                        # Look for existing bill
-                        bill_name = f"{loan.loan_name or account.name} Payment"
-                        bill = Bill.query.filter_by(
-                            user_id=user.id,
-                            name=bill_name,
-                            plaid_bill_id=loan.account_id
-                        ).first()
-                        
-                        if not bill:
-                            # Create new bill
-                            bill = Bill(
-                                user_id=user.id,
-                                plaid_bill_id=loan.account_id,
-                                name=bill_name,
-                                amount=loan.minimum_payment_amount or 0,
-                                due_date=loan.next_payment_due_date,
-                                category="Student Loan",
-                                status="unpaid",
-                                notes=f"Automatically created from Plaid liabilities"
-                            )
-                            db.session.add(bill)
-                        else:
-                            # Update existing bill
-                            bill.amount = loan.minimum_payment_amount or 0
-                            bill.due_date = loan.next_payment_due_date
-        
-        # Process mortgages
-        if hasattr(response.liabilities, 'mortgage'):
-            for mortgage in response.liabilities.mortgage:
-                for account in response.accounts:
-                    if account.account_id == mortgage.account_id:
-                        # Look for existing bill
-                        bill_name = f"{account.name} Payment"
-                        bill = Bill.query.filter_by(
-                            user_id=user.id,
-                            name=bill_name,
-                            plaid_bill_id=mortgage.account_id
-                        ).first()
-                        
-                        if not bill:
-                            # Create new bill
-                            bill = Bill(
-                                user_id=user.id,
-                                plaid_bill_id=mortgage.account_id,
-                                name=bill_name,
-                                amount=mortgage.next_monthly_payment or 0,
-                                due_date=mortgage.next_payment_due_date,
-                                category="Mortgage",
-                                status="unpaid",
-                                notes="Automatically created from Plaid liabilities"
-                            )
-                            db.session.add(bill)
-                        else:
-                            # Update existing bill
-                            bill.amount = mortgage.next_monthly_payment or 0
-                            bill.due_date = mortgage.next_payment_due_date
-        
-        db.session.commit()
-        return True, "Liabilities updated successfully"
+        success, msg = sync_liability_bills(user, response)
+        return success, msg if success else (False, msg)
     
     except Exception as e:
         current_app.logger.error(f"Error fetching liabilities: {str(e)}")

@@ -144,3 +144,46 @@ def test_fetch_accounts(mock_plaid_client, mock_decrypt_token, app, test_user):
         account_ids = [acc.plaid_account_id for acc in accounts]
         assert "acc1" in account_ids
         assert "acc2" in account_ids
+
+@patch('app.plaid_service.plaid_client')
+@patch('app.plaid_service.decrypt_token')
+def test_liabilities_to_bills(mock_decrypt_token, mock_plaid_client, app, test_user):
+    """Liabilities fetch should create Bill records from credit liabilities."""
+    from app import plaid_service as ps
+    from app.models import Account, Bill
+    import datetime
+
+    with app.app_context():
+        # Prepare user with access token
+        test_user.plaid_access_token = 'encrypted'
+        db.session.commit()
+
+        # Create matching account
+        acct = Account(user_id=test_user.id, plaid_account_id='acc-credit', name='Visa', type='credit', subtype='credit card')
+        db.session.add(acct)
+        db.session.commit()
+
+        class CreditObj:
+            account_id = 'acc-credit'
+            minimum_payment_amount = 50.25
+            last_statement_balance = 500.00
+            next_payment_due_date = datetime.date.today() + datetime.timedelta(days=14)
+
+        class LiabilitiesStruct:
+            credit = [CreditObj()]
+            student = []
+            mortgage = []
+
+        class ResponseObj:
+            liabilities = LiabilitiesStruct()
+            accounts = [type('Acct', (), {'account_id': 'acc-credit', 'name': 'Visa'})()]
+
+        mock_decrypt_token.return_value = 'access-token'
+        mock_plaid_client.liabilities_get.return_value = ResponseObj()
+
+        success, msg = ps.fetch_liabilities(test_user)
+        assert success, msg
+        bill = Bill.query.filter_by(user_id=test_user.id, plaid_bill_id='acc-credit').first()
+        assert bill is not None
+        assert abs(bill.amount - 50.25) < 0.01
+        assert 'Plaid liabilities' in (bill.notes or '')

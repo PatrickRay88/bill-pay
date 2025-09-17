@@ -28,6 +28,7 @@ jobs:
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
       PYTHONPATH: ${{ github.workspace }}
+  # Plaid secrets intentionally omitted in CI; app guards missing credentials.
     strategy:
       matrix:
         # Supported active Python versions; 3.12 is current stable.
@@ -63,21 +64,13 @@ jobs:
         env:
           FLASK_ENV: testing
           SECRET_KEY: test-secret-key
-          # Provide empty defaults so local editors stop flagging unknown secret references
-          # Secrets may be unset in forks; absence is OK because Plaid is guarded in app init.
-          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
-          PLAID_SECRET: ${{ secrets.PLAID_SANDBOX_SECRET }}
           PLAID_ENV: sandbox
         run: |
           coverage run -m pytest -q --maxfail=1 --junitxml=pytest-report.xml
           coverage xml -o coverage.xml
           coverage report -m
       - name: Enforce minimum coverage
-        run: |
-          python -c "import sys,re,pathlib;txt=pathlib.Path('coverage.xml').read_text();m=re.search(r'line-rate=\"([0-9.]+)\"',txt);\
-          (lambda: (print('Could not parse coverage.xml line-rate', file=sys.stderr), sys.exit(1)) )() if not m else None;\
-          rate=float(m.group(1))*100;threshold=50;print(f'Line coverage: {rate:.2f}% (threshold {threshold}%)');\
-          (lambda: (print('Coverage below threshold', file=sys.stderr), sys.exit(2)) )() if rate < threshold else None"
+        run: coverage report --fail-under=50 -m
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4

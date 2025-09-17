@@ -54,10 +54,11 @@ def create_app(config_name='default'):
     csrf.init_app(app)
     bcrypt.init_app(app)
     
-    # Initialize Plaid client (skip in TESTING if credentials missing to avoid API init errors in CI)
+    # Initialize Plaid client (skip real init in TESTING or when creds are missing)
     global plaid_client
-    if app.config.get('PLAID_CLIENT_ID') and app.config.get('PLAID_SECRET'):
-        plaid_env = app.config['PLAID_ENV'].lower()
+    creds_present = bool(app.config.get('PLAID_CLIENT_ID') and app.config.get('PLAID_SECRET'))
+    if creds_present and not app.config.get('TESTING'):
+        plaid_env = app.config.get('PLAID_ENV', 'sandbox').lower()
         configuration = plaid.Configuration(
             host=plaid.Environment.Sandbox if plaid_env == 'sandbox' else plaid.Environment.Production,
             api_key={
@@ -67,15 +68,13 @@ def create_app(config_name='default'):
         )
         api_client = plaid.ApiClient(configuration)
         plaid_client = plaid_api.PlaidApi(api_client)
+        app.logger.info("Initialized Plaid API client.")
     else:
-        if app.config.get('TESTING'):
-            # Provide a lightweight dummy to satisfy attribute access in code paths unexpectedly reached
-            class _DummyPlaid:
-                def __getattr__(self, item):
-                    raise RuntimeError("Plaid client unavailable in TESTING without credentials; mock this in tests.")
-            plaid_client = _DummyPlaid()
-        else:
-            plaid_client = None
+        class _DummyPlaidClient:
+            def __getattr__(self, name):
+                raise RuntimeError("Plaid client not configured in this environment.")
+        plaid_client = _DummyPlaidClient()
+        app.logger.info("Plaid client not initialized (testing or missing credentials).")
     
     # Register blueprints
     from app.routes.auth import auth_bp

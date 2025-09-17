@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Python CI
 
 on:
@@ -28,21 +29,25 @@ jobs:
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
       PYTHONPATH: ${{ github.workspace }}
-  # Plaid secrets intentionally omitted in CI; app guards missing credentials.
+    # Plaid secrets intentionally omitted in CI; app guards missing credentials.
     strategy:
+      fail-fast: false
       matrix:
-        # Supported active Python versions; 3.12 is current stable.
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version:
+          - '3.10'
+          - '3.11'
+          - '3.12'
 
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           cache-dependency-path: requirements.txt
       - name: Show environment details
+        shell: bash
         run: |
           python --version
           pip --version
@@ -50,11 +55,13 @@ jobs:
           pwd
           ls -1
       - name: Install base + dev dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install flake8 coverage
-      - name: Lint (strict + stats)
+      - name: Lint
+        shell: bash
         run: |
           # Stop build on critical errors first
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -65,11 +72,13 @@ jobs:
           FLASK_ENV: testing
           SECRET_KEY: test-secret-key
           PLAID_ENV: sandbox
+        shell: bash
         run: |
           coverage run -m pytest -q --maxfail=1 --junitxml=pytest-report.xml
           coverage xml -o coverage.xml
           coverage report -m
       - name: Enforce minimum coverage
+        shell: bash
         run: coverage report --fail-under=50 -m
       - name: Upload test artifacts
         if: always()

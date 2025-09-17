@@ -26,24 +26,23 @@ def index():
     net_worth = db.session.query(func.sum(Account.current_balance)).\
         filter(Account.user_id == current_user.id).scalar() or 0
     
-    # Income mode: 'estimated' (current behavior) or 'calculated'
-    mode = session.get('income_mode', 'estimated')
+    # Income mode: 'estimated' (projection) or 'calculated' (sum of actual paychecks)
+    mode = session.get('income_mode', 'calculated')
     # Base incomes
     incomes = Income.query.filter_by(user_id=current_user.id).all()
     total_net = sum(i.net_amount or 0 for i in incomes)
     monthly_income = 0
-    if mode == 'estimated':
-        monthly_income = total_net  # existing interpretation: already monthly net amounts
+    if mode == 'calculated':
+        # Calculated: sum of actual paychecks entered
+        monthly_income = total_net
     else:
-        # Calculated: derive per-pay amount (average net entry) * number of Fridays this month
+        # Estimated: average per-pay amount * number of Fridays in current month
         now_dt = utc_now()
         year, month = now_dt.year, now_dt.month
         friday_count = fridays_in_month(year, month)
-        if incomes:
-            avg_pay = total_net / len([i for i in incomes if (i.net_amount or 0) > 0]) if total_net else 0
-            monthly_income = avg_pay * friday_count
-        else:
-            monthly_income = 0
+        positive_pays = [i for i in incomes if (i.net_amount or 0) > 0]
+        avg_pay = (sum(i.net_amount or 0 for i in positive_pays) / len(positive_pays)) if positive_pays else 0
+        monthly_income = avg_pay * friday_count
     
     # Get monthly bills (sum of all bills)
     monthly_bills = db.session.query(func.sum(Bill.amount)).\
@@ -66,36 +65,33 @@ def index():
     # Count linked accounts for conditional UI (avoid showing unlink if no data yet)
     account_count = Account.query.filter_by(user_id=current_user.id).count()
     
-    # Get transaction data for charts
-    # For income vs. expenses chart
+    # Build chart data from Income and Bills (not raw transactions)
     now = datetime.now()
     start_date = date(now.year, now.month, 1)
     end_date = date(now.year, now.month + 1, 1) if now.month < 12 else date(now.year + 1, 1, 1)
-    
-    # Get income and expense transactions
-    transactions = Transaction.query.filter(
-        Transaction.user_id == current_user.id,
-        Transaction.date.between(start_date, end_date)
+
+    monthly_incomes = Income.query.filter(
+        Income.user_id == current_user.id,
+        Income.date.between(start_date, end_date)
     ).all()
-    
-    # Categorize transactions
-    income_total = sum(t.amount for t in transactions if t.amount < 0)
-    expense_total = sum(t.amount for t in transactions if t.amount > 0)
-    
-    # Category breakdown
+    monthly_bills_q = Bill.query.filter(
+        Bill.user_id == current_user.id,
+        Bill.due_date.between(start_date, end_date)
+    )
+    monthly_bills_list = monthly_bills_q.all()
+
+    income_total = sum(i.net_amount or 0 for i in monthly_incomes)
+    expense_total = sum(b.amount or 0 for b in monthly_bills_list)
+
+    # Category breakdown from bills
     categories = {}
-    for transaction in transactions:
-        if transaction.amount > 0 and transaction.category:  # Expense with category
-            if transaction.category not in categories:
-                categories[transaction.category] = 0
-            categories[transaction.category] += transaction.amount
-    
-    # Sort categories by amount
+    for b in monthly_bills_list:
+        cat = b.category or 'Other'
+        categories[cat] = categories.get(cat, 0) + (b.amount or 0)
+
     sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
-    
+
     # Prepare chart data
-    # NOTE: Use key name 'data' instead of 'values' so Jinja attribute lookup
-    # does not resolve the dict.values method, which caused JSON serialization errors.
     chart_data = {
         'income_vs_expenses': {
             'labels': ['Income', 'Expenses'],

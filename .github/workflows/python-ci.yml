@@ -2,6 +2,7 @@ name: Python CI
 
 on:
   push:
+    # Run for all branches (feature/*, bugfix/*, etc.) but skip deleted ref noise
     branches:
       - '**'
   pull_request:
@@ -13,9 +14,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Principle of least privilege (defaults to read-only if unspecified)
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PYTHONUNBUFFERED: '1'
@@ -28,67 +34,75 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip'
-        cache-dependency-path: requirements.txt
-    - name: Show Python and pip versions
-      run: |
-        python --version
-        pip --version
-        pwd
-        ls -la
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install coverage
-    - name: Lint with flake8
-      run: |
-        pip install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Run tests with coverage
-      run: |
-        coverage run -m pytest -q --maxfail=1 --junitxml=pytest-report.xml
-        coverage xml -o coverage.xml
-        coverage report -m
-      env:
-        FLASK_ENV: testing
-        SECRET_KEY: test-secret-key
-        PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
-        PLAID_SECRET: ${{ secrets.PLAID_SANDBOX_SECRET }}
-        PLAID_ENV: sandbox
-    - name: Upload test artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results-${{ matrix.python-version }}
-        path: |
-          pytest-report.xml
-          coverage.xml
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Show environment details
+        run: |
+          python --version
+          pip --version
+          which python
+          pwd
+          ls -1
+      - name: Install base + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 coverage
+      - name: Lint (strict + stats)
+        run: |
+          # Stop build on critical errors first
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Then run a full report without failing the build (style warnings)
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      - name: Run tests with coverage
+        env:
+          FLASK_ENV: testing
+          SECRET_KEY: test-secret-key
+          # Provide empty defaults so local editors stop flagging unknown secret references
+          # Secrets may be unset in forks; absence is OK because Plaid is guarded in app init.
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SECRET: ${{ secrets.PLAID_SANDBOX_SECRET }}
+          PLAID_ENV: sandbox
+        run: |
+          coverage run -m pytest -q --maxfail=1 --junitxml=pytest-report.xml
+          coverage xml -o coverage.xml
+          coverage report -m
+      - name: Enforce minimum coverage
+        run: |
+          python -c "import sys,re,pathlib;txt=pathlib.Path('coverage.xml').read_text();m=re.search(r'line-rate=\"([0-9.]+)\"',txt);\
+          (lambda: (print('Could not parse coverage.xml line-rate', file=sys.stderr), sys.exit(1)) )() if not m else None;\
+          rate=float(m.group(1))*100;threshold=50;print(f'Line coverage: {rate:.2f}% (threshold {threshold}%)');\
+          (lambda: (print('Coverage below threshold', file=sys.stderr), sys.exit(2)) )() if rate < threshold else None"
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            pytest-report.xml
+            coverage.xml
 
   deploy:
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dependencies
+      - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
           pip install build wheel
-      - name: Build and package application
+      - name: Build distribution artifacts
         run: |
           python -m build
     # Deployment steps would go here - e.g., to Heroku, Fly.io, etc.

@@ -40,7 +40,7 @@
                 <div class="label">Monthly Income</div>
                 <div class="value format-currency">{{ monthly_income }}</div>
                                 <div class="d-flex justify-content-between align-items-center mt-1">
-                                    <small class="text-muted">{% if income_mode=='estimated' %}Estimated (sum net entries){% else %}Calculated (avg net * Fridays){% endif %}</small>
+                                    <small class="text-muted">{% if income_mode=='estimated' %}Estimated (avg net * Fridays){% else %}Calculated (sum of paychecks){% endif %}</small>
                                     <div class="btn-group btn-group-sm" role="group" aria-label="Income mode">
                                         <button class="btn btn-outline-secondary income-mode-btn {% if income_mode=='estimated' %}active{% endif %}" data-mode="estimated">Est</button>
                                         <button class="btn btn-outline-secondary income-mode-btn {% if income_mode=='calculated' %}active{% endif %}" data-mode="calculated">Calc</button>

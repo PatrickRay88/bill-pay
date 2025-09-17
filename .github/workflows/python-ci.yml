@@ -53,11 +53,4 @@ jobs:
         run: coverage report --fail-under=50 -m
 
     # (Artifacts omitted intentionally to reduce editor warnings; add back if needed.)
-
-    # Deployment steps would go here - e.g., to Heroku, Fly.io, etc.
-    # - name: Deploy to Heroku
-    #   uses: akhileshns/heroku-deploy@v3.12.12
-    #   with:
-    #     heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-    #     heroku_app_name: "billpay-app"
-    #     heroku_email: ${{ secrets.HEROKU_EMAIL }}
+  # Deployment placeholder removed to avoid confusion with obsolete workflow versions.

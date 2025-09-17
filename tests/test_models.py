@@ -56,7 +56,8 @@ def test_account_model(app, test_user):
         assert saved_account.current_balance == 1000.00
         
         # Test account-user relationship
-        user = User.query.get(test_user.id)
+        # Use SQLAlchemy 2.0 style session.get instead of deprecated Query.get
+        user = db.session.get(User, test_user.id)
         assert len(user.accounts) == 1
         assert user.accounts[0].name == 'Test Checking'
 
@@ -97,7 +98,7 @@ def test_transaction_model(app, test_user):
         assert saved_transaction.account.name == 'Test Checking'
         
         # Test transaction-user relationship
-        user = User.query.get(test_user.id)
+        user = db.session.get(User, test_user.id)
         assert len(user.transactions) == 1
         assert user.transactions[0].name == 'Grocery Store'
 
@@ -124,7 +125,7 @@ def test_bill_model(app, test_user):
         assert saved_bill.status == 'unpaid'
         
         # Test bill-user relationship
-        user = User.query.get(test_user.id)
+        user = db.session.get(User, test_user.id)
         assert len(user.bills) == 1
         assert user.bills[0].name == 'Rent'
 
@@ -150,6 +151,6 @@ def test_income_model(app, test_user):
         assert saved_income.net_amount == 2400.00
         
         # Test income-user relationship
-        user = User.query.get(test_user.id)
+        user = db.session.get(User, test_user.id)
         assert len(user.incomes) == 1
         assert user.incomes[0].source == 'Employer'

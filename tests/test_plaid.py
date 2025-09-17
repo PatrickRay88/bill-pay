@@ -85,7 +85,8 @@ def test_exchange_public_token(
         assert "Successfully connected" in message
         
         # Check that user record was updated
-        user = User.query.get(test_user.id)
+        # Use SQLAlchemy 2.0 style session.get to avoid deprecated Query.get warning
+        user = db.session.get(User, test_user.id)
         assert user.plaid_access_token is not None
         assert user.item_id == "test-item-id"
         

@@ -24,7 +24,7 @@
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav">
-                    {% if (not current_user.plaid_access_token) or ACCOUNT_COUNT == 0 %}
+                    {% if USE_PLAID and ((not current_user.plaid_access_token) or ACCOUNT_COUNT == 0) %}
                     <li class="nav-item">
                         <button class="btn btn-outline-light me-2 plaid-link-button"><i class="fas fa-link me-1"></i> Connect Bank</button>
                     </li>

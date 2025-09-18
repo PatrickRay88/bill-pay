@@ -1,6 +1,9 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, BooleanField, DecimalField, DateField, TextAreaField, SelectField
-from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
+from wtforms import (
+    StringField, PasswordField, SubmitField, BooleanField, DecimalField, DateField,
+    TextAreaField, SelectField, IntegerField
+)
+from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional, NumberRange
 
 class LoginForm(FlaskForm):
     """Login form."""
@@ -69,3 +72,37 @@ class ProfileForm(FlaskForm):
         EqualTo('new_password', message='Passwords must match.')
     ])
     submit = SubmitField('Update Profile')
+
+
+class AccountForm(FlaskForm):
+    """Form for manual creation/editing of an account."""
+    name = StringField('Account Name', validators=[DataRequired()])
+    type = SelectField(
+        'Type',
+        choices=[
+            ('depository', 'Depository'),
+            ('credit', 'Credit'),
+            ('loan', 'Loan'),
+            ('investment', 'Investment'),
+            ('other', 'Other')
+        ],
+        validators=[DataRequired()]
+    )
+    subtype = StringField('Subtype', validators=[Optional()])
+    current_balance = DecimalField('Current Balance', validators=[Optional()])
+    available_balance = DecimalField('Available Balance', validators=[Optional()])
+    iso_currency_code = StringField('Currency', default='USD', validators=[Length(max=3), Optional()])
+    submit = SubmitField('Save Account')
+
+
+class TransactionForm(FlaskForm):
+    """Form for manual creation/editing of a transaction."""
+    account_id = SelectField('Account', coerce=int, validators=[DataRequired()])
+    name = StringField('Description', validators=[DataRequired(), Length(max=255)])
+    amount = DecimalField('Amount', validators=[DataRequired()])
+    date = DateField('Date', validators=[DataRequired()], format='%Y-%m-%d')
+    category = StringField('Category', validators=[Optional(), Length(max=100)])
+    merchant_name = StringField('Merchant', validators=[Optional(), Length(max=150)])
+    pending = BooleanField('Pending')
+    notes = TextAreaField('Notes', validators=[Optional()])
+    submit = SubmitField('Save Transaction')

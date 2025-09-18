@@ -1,8 +1,10 @@
-from flask import Blueprint, render_template, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, jsonify, flash, redirect, url_for, request
 from flask_login import current_user
 from app import db
 from app.models import Account, Transaction
 from app.plaid_service import fetch_accounts, create_link_token
+from app.forms import AccountForm
+import uuid
 
 accounts_bp = Blueprint('accounts', __name__, url_prefix='/accounts')
 
@@ -29,6 +31,37 @@ def index(*args, **kwargs):
         title='Accounts',
         account_groups=account_groups,
         link_token=link_token
+    )
+
+@accounts_bp.route('/new', methods=['GET', 'POST'])
+def create(*args, **kwargs):
+    """Manual account creation (manual mode or supplemental)."""
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.login'))
+
+    form = AccountForm()
+    if form.validate_on_submit():
+        # Generate placeholder Plaid account id for uniqueness
+        placeholder_plaid_id = f"MANUAL-{uuid.uuid4()}"
+        account = Account(
+            user_id=current_user.id,
+            plaid_account_id=placeholder_plaid_id,
+            name=form.name.data.strip(),
+            type=form.type.data,
+            subtype=form.subtype.data.strip() if form.subtype.data else None,
+            current_balance=float(form.current_balance.data) if form.current_balance.data is not None else None,
+            available_balance=float(form.available_balance.data) if form.available_balance.data is not None else None,
+            iso_currency_code=form.iso_currency_code.data.strip().upper() if form.iso_currency_code.data else 'USD'
+        )
+        db.session.add(account)
+        db.session.commit()
+        flash('Account created successfully.', 'success')
+        return redirect(url_for('accounts.detail', account_id=account.id))
+
+    return render_template(
+        'accounts/form.html',
+        title='New Account',
+        form=form
     )
 
 @accounts_bp.route('/<int:account_id>')

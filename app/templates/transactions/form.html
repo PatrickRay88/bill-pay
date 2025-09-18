@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3" style="max-width:700px;">
+  <h2 class="mb-3">{{ title }}</h2>
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="row g-2">
+      <div class="col-md-6 mb-3">{{ form.account_id.label(class='form-label') }} {{ form.account_id(class='form-select') }}</div>
+      <div class="col-md-6 mb-3">{{ form.date.label(class='form-label') }} {{ form.date(class='form-control') }}</div>
+    </div>
+    <div class="mb-3">{{ form.name.label(class='form-label') }} {{ form.name(class='form-control') }}</div>
+    <div class="row g-2">
+      <div class="col-md-6 mb-3">{{ form.amount.label(class='form-label') }} {{ form.amount(class='form-control') }}</div>
+      <div class="col-md-6 mb-3">{{ form.category.label(class='form-label') }} {{ form.category(class='form-control') }}</div>
+    </div>
+    <div class="mb-3">{{ form.merchant_name.label(class='form-label') }} {{ form.merchant_name(class='form-control') }}</div>
+    <div class="form-check form-switch mb-3">{{ form.pending(class='form-check-input') }} {{ form.pending.label(class='form-check-label') }}</div>
+    <div class="mb-3">{{ form.notes.label(class='form-label') }} {{ form.notes(class='form-control', rows=3) }}</div>
+    <button class="btn btn-primary" type="submit">Save</button>
+    <a href="{{ url_for('transactions.index') }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

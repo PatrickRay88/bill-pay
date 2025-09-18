@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from app import db
 from app.models import Transaction, Account
 from app.plaid_service import fetch_transactions
+from app.forms import TransactionForm
+import uuid
 
 transactions_bp = Blueprint('transactions', __name__, url_prefix='/transactions')
 
@@ -121,3 +123,43 @@ def edit_note(transaction_id, *args, **kwargs):
     db.session.commit()
     
     return jsonify({"success": True})
+
+@transactions_bp.route('/new', methods=['GET', 'POST'])
+def create(*args, **kwargs):
+    """Manual transaction creation."""
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.login'))
+
+    # Populate account choices for current user
+    accounts = Account.query.filter_by(user_id=current_user.id).all()
+    if not accounts:
+        flash('Create an account before adding transactions.', 'warning')
+        return redirect(url_for('accounts.create'))
+
+    form = TransactionForm()
+    form.account_id.choices = [(a.id, a.name) for a in accounts]
+
+    if form.validate_on_submit():
+        placeholder_plaid_txn_id = f"MANUAL-{uuid.uuid4()}"
+        txn = Transaction(
+            user_id=current_user.id,
+            account_id=form.account_id.data,
+            plaid_transaction_id=placeholder_plaid_txn_id,
+            name=form.name.data.strip(),
+            amount=float(form.amount.data),
+            date=form.date.data,
+            category=form.category.data.strip() if form.category.data else None,
+            merchant_name=form.merchant_name.data.strip() if form.merchant_name.data else None,
+            pending=form.pending.data,
+            notes=form.notes.data.strip() if form.notes.data else None
+        )
+        db.session.add(txn)
+        db.session.commit()
+        flash('Transaction created successfully.', 'success')
+        return redirect(url_for('transactions.detail', transaction_id=txn.id))
+
+    return render_template(
+        'transactions/form.html',
+        title='New Transaction',
+        form=form
+    )

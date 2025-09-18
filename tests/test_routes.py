@@ -1,3 +1,4 @@
+import os
 import pytest
 from flask import url_for
 from app import create_app, db
@@ -68,8 +69,9 @@ def test_user_login(client, app):
     assert b'Dashboard' in response.data
 
 
+@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
 def test_plaid_unlink(client, app):
-    """User can unlink Plaid which clears access token."""
+    """User can unlink Plaid which clears access token (skipped when Plaid disabled)."""
     # Create and login user
     with app.app_context():
         user = User(email='unlink@example.com')
@@ -249,3 +251,91 @@ def test_income_page_projection_vs_actual(client, app, monkeypatch):
     assert b'Actual Monthly Total' in resp2.data
     # Actual net total = 800+900+950+970 = 3620
     assert b'3620' in resp2.data
+
+
+def test_manual_account_creation(client, app):
+    """User can create an account manually when Plaid disabled."""
+    with app.app_context():
+        user = User(email='acctcreate@example.com')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+
+    # Login
+    client.post('/login', data={'email':'acctcreate@example.com','password':'password123'}, follow_redirects=True)
+
+    resp = client.post('/accounts/new', data={
+        'name':'Checking One',
+        'type':'depository',
+        'subtype':'checking',
+        'current_balance':'1000.55',
+        'available_balance':'900.25',
+        'iso_currency_code':'USD'
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b'Checking One' in resp.data
+
+    with app.app_context():
+        from app.models import Account
+        acct = Account.query.filter_by(name='Checking One').first()
+        assert acct is not None
+        assert acct.plaid_account_id.startswith('MANUAL-')
+
+
+def test_manual_transaction_creation(client, app):
+    """User can create a transaction manually once an account exists."""
+    from datetime import date
+    with app.app_context():
+        from app.models import Account
+        user = User(email='txncreate@example.com')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+        acct = Account(
+            user_id=user.id,
+            plaid_account_id='MANUAL-TEST',
+            name='Primary',
+            type='depository',
+            current_balance=0
+        )
+        db.session.add(acct)
+        db.session.commit()
+        acct_id = acct.id
+
+    # Login
+    client.post('/login', data={'email':'txncreate@example.com','password':'password123'}, follow_redirects=True)
+
+    resp = client.post('/transactions/new', data={
+        'account_id': acct_id,
+        'name':'Grocery Store',
+        'amount':'45.67',
+        'date': date.today().strftime('%Y-%m-%d'),
+        'category':'Groceries',
+        'merchant_name':'Local Market',
+        'pending':'y',
+        'notes':'Weekly shopping'
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b'Grocery Store' in resp.data
+
+    with app.app_context():
+        from app.models import Transaction
+        txn = Transaction.query.filter_by(name='Grocery Store').first()
+        assert txn is not None
+        assert txn.plaid_transaction_id.startswith('MANUAL-')
+
+
+def test_transaction_requires_account(client, app):
+    """Redirect to account creation if user has no accounts when creating transaction."""
+    with app.app_context():
+        user = User(email='txnnoacct@example.com')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+
+    client.post('/login', data={'email':'txnnoacct@example.com','password':'password123'}, follow_redirects=True)
+
+    resp = client.get('/transactions/new', follow_redirects=True)
+    assert resp.status_code == 200
+    # Should land on account creation page which contains title 'New Account'
+    assert b'New Account' in resp.data

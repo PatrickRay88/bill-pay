@@ -5,17 +5,22 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>Accounts</h2>
     <div class="d-flex align-items-center">
-      {% if link_token %}
-        <button class="btn btn-sm btn-success me-2 plaid-link-button">
-          <i class="fa fa-link me-1"></i> Connect Bank
-        </button>
+      {% if USE_PLAID %}
+        {% if link_token %}
+          <button class="btn btn-sm btn-success me-2 plaid-link-button">
+            <i class="fa fa-link me-1"></i> Connect Bank
+          </button>
+        {% endif %}
+        {% if current_user.plaid_access_token %}
+          <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger me-2" data-bs-toggle="tooltip" title="Unlink Plaid and remove imported data">
+            <i class="fa fa-unlink me-1"></i> Unlink
+          </button>
+        {% endif %}
+        <button class="btn btn-sm btn-outline-primary me-2" id="refresh-accounts-btn">Refresh Accounts</button>
       {% endif %}
-      {% if current_user.plaid_access_token %}
-        <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger me-2" data-bs-toggle="tooltip" title="Unlink Plaid and remove imported data">
-          <i class="fa fa-unlink me-1"></i> Unlink
-        </button>
-      {% endif %}
-      <button class="btn btn-sm btn-outline-primary me-2" id="refresh-accounts-btn">Refresh Accounts</button>
+      <a href="{{ url_for('accounts.create') }}" class="btn btn-sm btn-primary me-2">
+        <i class="fa fa-plus me-1"></i> New Account
+      </a>
       <a href="/dashboard" class="btn btn-sm btn-secondary">Dashboard</a>
     </div>
   </div>
@@ -46,10 +51,17 @@
           <i class="fa fa-university fa-3x text-secondary"></i>
         </div>
         <h5 class="card-title mb-2">No Accounts Found</h5>
-        <p class="text-muted mb-4">Connect a bank to start syncing balances and transactions.</p>
-        <button class="btn btn-primary plaid-link-button">
-          <i class="fa fa-link me-1"></i> Connect Your Bank
-        </button>
+        {% if USE_PLAID %}
+          <p class="text-muted mb-4">Connect a bank to start syncing balances and transactions.</p>
+          <button class="btn btn-primary plaid-link-button">
+            <i class="fa fa-link me-1"></i> Connect Your Bank
+          </button>
+        {% else %}
+          <p class="text-muted mb-4">No accounts yet. Create one to get started.</p>
+          <a href="{{ url_for('accounts.create') }}" class="btn btn-primary">
+            <i class="fa fa-plus me-1"></i> Create Account
+          </a>
+        {% endif %}
       </div>
     </div>
   {% endif %}

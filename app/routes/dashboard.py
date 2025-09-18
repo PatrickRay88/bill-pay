@@ -5,7 +5,7 @@ from sqlalchemy import func
 from app import db
 from app.models import Account, Transaction, Bill, Income
 from app.utils.time import fridays_in_month, utc_now
-from app.plaid_service import create_link_token
+from flask import current_app
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
@@ -17,10 +17,15 @@ def index():
     if not current_user.is_authenticated:
         return redirect(url_for('auth.login'))
     
-    # Initialize Plaid link token if needed
+    # Initialize Plaid link token only if Plaid enabled
     link_token = None
-    if not current_user.plaid_access_token:
-        link_token = create_link_token(current_user.id)
+    if current_app.config.get('USE_PLAID'):
+        if not current_user.plaid_access_token:
+            try:
+                from app.plaid_service import create_link_token  # local import to avoid hard dependency when disabled
+                link_token = create_link_token(current_user.id)
+            except Exception:
+                link_token = None
     
     # Calculate net worth (sum of all account balances)
     net_worth = db.session.query(func.sum(Account.current_balance)).\

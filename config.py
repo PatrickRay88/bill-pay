@@ -8,6 +8,8 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
     FLASK_APP = os.environ.get('FLASK_APP', 'run.py')
     FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
+    # Feature flags
+    USE_PLAID = os.environ.get('USE_PLAID', 'false').lower() in ('1', 'true', 'yes', 'on')
     
     # Database settings
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///billpay.db')
@@ -32,6 +34,7 @@ class TestingConfig(Config):
     """Testing configuration."""
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    USE_PLAID = False  # Force disable Plaid in tests to simplify manual-entry mode
     
 
 class ProductionConfig(Config):

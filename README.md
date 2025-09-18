@@ -159,6 +159,57 @@ You can rely on SQLite immediately—just run:
 ```
 flask db upgrade
 ```
+
+## Testing & Modes
+
+The application supports two runtime modes controlled by the feature flag `USE_PLAID`:
+
+| Mode | USE_PLAID value | Behavior |
+|------|-----------------|----------|
+| Manual Entry (default) | unset / `false` | All financial data entered via the UI forms. Plaid client not initialized. Plaid tests skipped. |
+| Plaid Enabled | `true` | Plaid client attempts initialization (sandbox/production depending on env vars). Plaid tests run (unless filtered). |
+
+### Running the Test Suite (Manual Mode)
+```
+pytest -q
+```
+You will see Plaid-specific tests reported as skipped (`s`).
+
+### Running Only Plaid Tests
+```
+$Env:USE_PLAID = "true"   # PowerShell
+pytest -m plaid -q
+```
+
+### Running Full Suite Including Plaid
+```
+$Env:USE_PLAID = "true"
+pytest -q
+```
+
+### Excluding Plaid Tests Explicitly
+If `USE_PLAID` is true but you want to ignore those tests:
+```
+pytest -m "not plaid" -q
+```
+
+### Plaid Test Marker
+Plaid-dependent tests use the custom marker `@pytest.mark.plaid` (registered in `tests/conftest.py`). Collection logic automatically skips them when `USE_PLAID` is falsy, so you don't need individual `skipif` decorators in each test.
+
+### Warning Filters
+`pytest.ini` suppresses the `datetime.utcnow()` deprecation warning originating from `flask_login` to keep output clean.
+
+### Local Toggle Script (Optional Future Enhancement)
+A helper script (planned) can toggle the `USE_PLAID` flag in `.env` for convenience. For now, export the variable in your shell before running.
+
+### Quick Diagnostic Command
+Check which mode you're in from an interactive shell:
+```python
+from app import create_app
+app = create_app('testing')
+print('USE_PLAID =', app.config['USE_PLAID'])
+```
+
 This will create `billpay.db` automatically with all tables. No further action needed for local testing.
 
 ## Authentication & User Management

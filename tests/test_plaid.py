@@ -1,4 +1,3 @@
-import os
 import pytest
 from unittest.mock import patch, MagicMock
 from app import create_app, db
@@ -43,7 +42,7 @@ def test_encrypt_decrypt_token(app):
         assert encrypt_token(None) is None
         assert decrypt_token(None) is None
 
-@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
+@pytest.mark.plaid
 @patch('app.plaid_service.plaid_client')
 def test_create_link_token(mock_plaid_client, app, test_user):
     """Test creating a Plaid Link token."""
@@ -57,7 +56,7 @@ def test_create_link_token(mock_plaid_client, app, test_user):
         assert token == "test-link-token"
         mock_plaid_client.link_token_create.assert_called_once()
 
-@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
+@pytest.mark.plaid
 @patch('app.plaid_service.plaid_client')
 @patch('app.plaid_service.fetch_accounts')
 @patch('app.plaid_service.fetch_transactions')
@@ -116,7 +115,7 @@ class MockBalances:
         self.available = available
         self.iso_currency_code = currency
 
-@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
+@pytest.mark.plaid
 @patch('app.plaid_service.decrypt_token')
 @patch('app.plaid_service.plaid_client')
 def test_fetch_accounts(mock_plaid_client, mock_decrypt_token, app, test_user):
@@ -150,7 +149,7 @@ def test_fetch_accounts(mock_plaid_client, mock_decrypt_token, app, test_user):
         assert "acc1" in account_ids
         assert "acc2" in account_ids
 
-@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
+@pytest.mark.plaid
 @patch('app.plaid_service.plaid_client')
 @patch('app.plaid_service.decrypt_token')
 def test_liabilities_to_bills(mock_decrypt_token, mock_plaid_client, app, test_user):

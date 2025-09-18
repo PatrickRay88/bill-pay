@@ -1,3 +1,4 @@
+import os
 import pytest
 from flask import url_for
 from app import create_app, db
@@ -68,8 +69,9 @@ def test_user_login(client, app):
     assert b'Dashboard' in response.data
 
 
+@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
 def test_plaid_unlink(client, app):
-    """User can unlink Plaid which clears access token."""
+    """User can unlink Plaid which clears access token (skipped when Plaid disabled)."""
     # Create and login user
     with app.app_context():
         user = User(email='unlink@example.com')

@@ -5,8 +5,12 @@ from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from flask_bcrypt import Bcrypt
-import plaid
-from plaid.api import plaid_api
+try:
+    import plaid  # type: ignore
+    from plaid.api import plaid_api  # type: ignore
+except ImportError:  # Plaid optional if USE_PLAID disabled
+    plaid = None
+    plaid_api = None
 from config import config
 
 # Initialize extensions (set expire_on_commit False globally to keep objects usable across contexts, aiding tests)
@@ -41,11 +45,14 @@ def create_app(config_name='default'):
         app.logger.info(f"Sanitized Plaid products list from {raw_products} -> {filtered_products}")
     app.config['PLAID_PRODUCTS'] = filtered_products
 
-    # Credential sanity checks
-    if not app.config.get('PLAID_CLIENT_ID') or not app.config.get('PLAID_SECRET'):
-        app.logger.warning("Plaid credentials missing; Plaid-dependent features will be disabled.")
-    elif app.config.get('PLAID_ENV', 'sandbox').lower() == 'sandbox':
-        app.logger.info(f"Running in Plaid sandbox with products: {app.config['PLAID_PRODUCTS']}")
+    # Credential sanity checks (only if Plaid feature enabled)
+    if app.config.get('USE_PLAID'):
+        if not app.config.get('PLAID_CLIENT_ID') or not app.config.get('PLAID_SECRET'):
+            app.logger.warning("Plaid credentials missing; Plaid-dependent features will be disabled.")
+        elif app.config.get('PLAID_ENV', 'sandbox').lower() == 'sandbox':
+            app.logger.info(f"Running in Plaid sandbox with products: {app.config['PLAID_PRODUCTS']}")
+    else:
+        app.logger.info("USE_PLAID disabled; application running in manual entry mode.")
     
     # Initialize extensions with app
     db.init_app(app)
@@ -54,27 +61,31 @@ def create_app(config_name='default'):
     csrf.init_app(app)
     bcrypt.init_app(app)
     
-    # Initialize Plaid client (skip real init in TESTING or when creds are missing)
+    # Initialize Plaid client only if feature enabled and library present
     global plaid_client
-    creds_present = bool(app.config.get('PLAID_CLIENT_ID') and app.config.get('PLAID_SECRET'))
-    if creds_present and not app.config.get('TESTING'):
-        plaid_env = app.config.get('PLAID_ENV', 'sandbox').lower()
-        configuration = plaid.Configuration(
-            host=plaid.Environment.Sandbox if plaid_env == 'sandbox' else plaid.Environment.Production,
-            api_key={
-                'clientId': app.config['PLAID_CLIENT_ID'],
-                'secret': app.config['PLAID_SECRET'],
-            }
-        )
-        api_client = plaid.ApiClient(configuration)
-        plaid_client = plaid_api.PlaidApi(api_client)
-        app.logger.info("Initialized Plaid API client.")
+    if app.config.get('USE_PLAID') and plaid is not None:
+        creds_present = bool(app.config.get('PLAID_CLIENT_ID') and app.config.get('PLAID_SECRET'))
+        if creds_present and not app.config.get('TESTING'):
+            try:
+                plaid_env = app.config.get('PLAID_ENV', 'sandbox').lower()
+                configuration = plaid.Configuration(
+                    host=plaid.Environment.Sandbox if plaid_env == 'sandbox' else plaid.Environment.Production,
+                    api_key={
+                        'clientId': app.config['PLAID_CLIENT_ID'],
+                        'secret': app.config['PLAID_SECRET'],
+                    }
+                )
+                api_client = plaid.ApiClient(configuration)
+                plaid_client = plaid_api.PlaidApi(api_client)  # type: ignore
+                app.logger.info("Initialized Plaid API client.")
+            except Exception as e:
+                app.logger.error(f"Failed to initialize Plaid client: {e}")
+                plaid_client = None
+        else:
+            app.logger.info("Plaid credentials absent or testing; skipping Plaid client init.")
+            plaid_client = None
     else:
-        class _DummyPlaidClient:
-            def __getattr__(self, name):
-                raise RuntimeError("Plaid client not configured in this environment.")
-        plaid_client = _DummyPlaidClient()
-        app.logger.info("Plaid client not initialized (testing or missing credentials).")
+        plaid_client = None  # Explicitly None in manual mode
     
     # Register blueprints
     from app.routes.auth import auth_bp
@@ -135,14 +146,19 @@ def create_app(config_name='default'):
                 acct_count = Account.query.filter_by(user_id=current_user.id).count()
             except Exception:
                 acct_count = 0
-        return dict(
-            PLAID_CLIENT_ID=app.config['PLAID_CLIENT_ID'],
-            PLAID_ENV=app.config['PLAID_ENV'],
-            PLAID_PRODUCTS=app.config['PLAID_PRODUCTS'],
-            PLAID_COUNTRY_CODES=app.config['PLAID_COUNTRY_CODES'],
+        base = dict(
             ACCOUNT_COUNT=acct_count,
-            CURRENT_TIME=utc_now()
+            CURRENT_TIME=utc_now(),
+            USE_PLAID=app.config.get('USE_PLAID')
         )
+        if app.config.get('USE_PLAID'):
+            base.update(
+                PLAID_CLIENT_ID=app.config.get('PLAID_CLIENT_ID'),
+                PLAID_ENV=app.config.get('PLAID_ENV'),
+                PLAID_PRODUCTS=app.config.get('PLAID_PRODUCTS'),
+                PLAID_COUNTRY_CODES=app.config.get('PLAID_COUNTRY_CODES'),
+            )
+        return base
     
     @app.route('/')
     def home():

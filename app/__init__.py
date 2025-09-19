@@ -35,22 +35,51 @@ def create_app(config_name='default'):
         # Disable CSRF for test client form submissions (relationships stay available due to global session option)
         app.config['WTF_CSRF_ENABLED'] = False
 
-    # Plaid product sanitization: remove products that commonly trigger INVALID_PRODUCT in sandbox
+    # Plaid product sanitization
     raw_products = [p.strip() for p in app.config.get('PLAID_PRODUCTS', []) if p.strip()]
-    unauthorized_prone = {'income', 'liabilities', 'assets', 'investments'}
-    filtered_products = [p for p in raw_products if p not in unauthorized_prone]
+    # In sandbox, optionally allow advanced products for testing
+    sandbox = app.config.get('PLAID_ENV', 'sandbox') == 'sandbox'
+    allow_adv = bool(app.config.get('SANDBOX_ALLOW_ADVANCED_PRODUCTS')) if sandbox else False
+    # Always filter the most commonly gated products unless explicitly testing: assets, investments
+    filtered_products = [p for p in raw_products if p not in {'assets', 'investments'}]
+    if not allow_adv and sandbox:
+        # Also filter liabilities/income unless explicitly allowed
+        filtered_products = [p for p in filtered_products if p not in {'liabilities', 'income'}]
     if not filtered_products:
         filtered_products = ['transactions', 'auth']
     if filtered_products != raw_products:
         app.logger.info(f"Sanitized Plaid products list from {raw_products} -> {filtered_products}")
     app.config['PLAID_PRODUCTS'] = filtered_products
 
-    # Credential sanity checks (only if Plaid feature enabled)
+    # Credential selection & sanity checks (only if Plaid feature enabled)
     if app.config.get('USE_PLAID'):
-        if not app.config.get('PLAID_CLIENT_ID') or not app.config.get('PLAID_SECRET'):
-            app.logger.warning("Plaid credentials missing; Plaid-dependent features will be disabled.")
-        elif app.config.get('PLAID_ENV', 'sandbox').lower() == 'sandbox':
-            app.logger.info(f"Running in Plaid sandbox with products: {app.config['PLAID_PRODUCTS']}")
+        plaid_env = app.config.get('PLAID_ENV', 'sandbox').lower()
+        # Choose secret precedence: specific env secret > generic PLAID_SECRET
+        chosen_secret = None
+        if plaid_env == 'production' and app.config.get('PLAID_SECRET_PRODUCTION'):
+            chosen_secret = app.config.get('PLAID_SECRET_PRODUCTION')
+        elif plaid_env == 'sandbox' and app.config.get('PLAID_SECRET_SANDBOX'):
+            chosen_secret = app.config.get('PLAID_SECRET_SANDBOX')
+        else:
+            chosen_secret = app.config.get('PLAID_SECRET')
+
+        # Inject into config so downstream code uses the resolved one
+        app.config['PLAID_SECRET_RESOLVED'] = chosen_secret
+
+        client_id = app.config.get('PLAID_CLIENT_ID')
+        if not client_id or not chosen_secret:
+            app.logger.warning("Plaid credentials missing (client id or secret); Plaid-dependent features will be disabled.")
+        else:
+            # Basic production validation heuristics without leaking the secret
+            masked = f"***{chosen_secret[-4:]}" if len(chosen_secret or '') >= 4 else "***"  # last 4 only
+            secret_len = len(chosen_secret)
+            if plaid_env == 'production':
+                # Heuristic: sandbox secrets often contain 'sandbox' or are shorter; add a warning if suspicious
+                if 'sandbox' in chosen_secret.lower():
+                    app.logger.error("PLAID_ENV=production but secret looks like a sandbox secret (contains 'sandbox').")
+                app.logger.info(f"Plaid production mode enabled (secret length={secret_len}, tail={masked}).")
+            else:
+                app.logger.info(f"Plaid sandbox mode enabled (secret length={secret_len}, tail={masked}).")
     else:
         app.logger.info("USE_PLAID disabled; application running in manual entry mode.")
     
@@ -64,7 +93,9 @@ def create_app(config_name='default'):
     # Initialize Plaid client only if feature enabled and library present
     global plaid_client
     if app.config.get('USE_PLAID') and plaid is not None:
-        creds_present = bool(app.config.get('PLAID_CLIENT_ID') and app.config.get('PLAID_SECRET'))
+        # Use resolved secret from earlier selection
+        resolved_secret = app.config.get('PLAID_SECRET_RESOLVED') or app.config.get('PLAID_SECRET')
+        creds_present = bool(app.config.get('PLAID_CLIENT_ID') and resolved_secret)
         if creds_present and not app.config.get('TESTING'):
             try:
                 plaid_env = app.config.get('PLAID_ENV', 'sandbox').lower()
@@ -72,7 +103,7 @@ def create_app(config_name='default'):
                     host=plaid.Environment.Sandbox if plaid_env == 'sandbox' else plaid.Environment.Production,
                     api_key={
                         'clientId': app.config['PLAID_CLIENT_ID'],
-                        'secret': app.config['PLAID_SECRET'],
+                        'secret': resolved_secret,
                     }
                 )
                 api_client = plaid.ApiClient(configuration)
@@ -149,12 +180,13 @@ def create_app(config_name='default'):
         base = dict(
             ACCOUNT_COUNT=acct_count,
             CURRENT_TIME=utc_now(),
-            USE_PLAID=app.config.get('USE_PLAID')
+            USE_PLAID=app.config.get('USE_PLAID'),
+            # Always expose PLAID_ENV so the navbar badge reflects reality even in manual mode
+            PLAID_ENV=app.config.get('PLAID_ENV')
         )
         if app.config.get('USE_PLAID'):
             base.update(
                 PLAID_CLIENT_ID=app.config.get('PLAID_CLIENT_ID'),
-                PLAID_ENV=app.config.get('PLAID_ENV'),
                 PLAID_PRODUCTS=app.config.get('PLAID_PRODUCTS'),
                 PLAID_COUNTRY_CODES=app.config.get('PLAID_COUNTRY_CODES'),
             )

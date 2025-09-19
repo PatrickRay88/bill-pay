@@ -310,7 +310,7 @@ Create (or update) your `.env` file using the values from your Plaid Dashboard (
 
 ```
 PLAID_CLIENT_ID=your-sandbox-client-id
-PLAID_SECRET=your-sandbox-secret
+PLAID_SECRET_SANDBOX=your-sandbox-secret   # Prefer explicit env-specific names now
 PLAID_ENV=sandbox
 PLAID_PRODUCTS=transactions,auth
 PLAID_COUNTRY_CODES=US,CA
@@ -358,18 +358,62 @@ After linking, the app will automatically pull accounts and initial transactions
 ### 7. Adjusting Products
 Update `PLAID_PRODUCTS` in `.env` (comma separated). Supported examples: `transactions,auth,liabilities,income`. The app will sanitize & log the final list on startup. Only keep what you actively use to reduce latency and error surface.
 
+In the Sandbox, you can optionally enable extra products for exploration by setting:
+
+```
+SANDBOX_ALLOW_ADVANCED_PRODUCTS=true
+```
+
+When this flag is true and `PLAID_ENV=sandbox`, the app will allow `liabilities` and `income` in the requested product list. We still filter highly gated products like `assets` and `investments` by default.
+
 ### 8. Security Notes (Development vs Production)
 Development conveniences (e.g., auto-login shortcuts) should be disabled for production:
 1. Ensure real authentication (remove any auto-login test user logic).
 2. Set a strong, persistent `SECRET_KEY` and `ENCRYPTION_KEY`.
 3. Use HTTPS in production and rotate Plaid secrets if exposed.
 
-### 9. Migrating From Sandbox to Development/Production
-1. Change `PLAID_ENV` to `development` (requires a Development tier and real credentials) or `production`.
-2. Remove any sandbox-only UI (auto-link button) and test credentials instructions.
-3. Add any newly approved products (e.g., `liabilities`, `income`) back to `PLAID_PRODUCTS`.
-4. Run DB migrations if models changed.
-5. Perform a fresh link through the real Plaid Link flow (sandbox items cannot be promoted).
+### 9. Migrating From Sandbox to Development/Production (Re‑Enable Plaid Securely)
+The application now supports environment‑specific Plaid secrets. You can keep both sandbox and production values in your deployment environment (NOT committed) and switch using `PLAID_ENV`.
+
+Supported secret variables (checked in this order):
+| Active `PLAID_ENV` | Preferred Secret Var | Fallback |
+|--------------------|----------------------|----------|
+| `sandbox`          | `PLAID_SECRET_SANDBOX` | `PLAID_SECRET` |
+| `production`       | `PLAID_SECRET_PRODUCTION` | `PLAID_SECRET` |
+
+Steps:
+1. Keep `USE_PLAID=false` while configuring production secrets.
+2. Set:
+   - `PLAID_CLIENT_ID=<your real client id>`
+   - `PLAID_SECRET_PRODUCTION=<your production secret>`
+   - Leave `PLAID_SECRET_SANDBOX` in place for rollback if desired.
+3. Switch `PLAID_ENV=production`.
+4. (Optional) Run a health check (planned script) or start the app locally with production keys only if on a secured machine / VPN.
+5. Flip `USE_PLAID=true` and restart. Logs will show masked confirmation:
+   `Plaid production mode enabled (secret length=XX, tail=***1234).`
+6. Perform a fresh Plaid Link. Sandbox items cannot be promoted; users must relink.
+
+Safety Guards Implemented:
+* Secret never fully logged (only last 4 chars + length).
+* If `PLAID_ENV=production` but the secret string contains `sandbox`, an error is logged and you should rotate / correct.
+* Missing client id or secret halts Plaid client initialization gracefully (manual mode still works).
+
+Rollback to Sandbox:
+1. Set `USE_PLAID=false` (optional pause).
+2. Switch `PLAID_ENV=sandbox`.
+3. Ensure `PLAID_SECRET_SANDBOX` present.
+4. Set `USE_PLAID=true` and restart.
+
+Minimal Production Variable Set Example (PowerShell):
+```powershell
+$Env:USE_PLAID = "true"
+$Env:PLAID_ENV = "production"
+$Env:PLAID_CLIENT_ID = "prod_client_id_here"
+$Env:PLAID_SECRET_PRODUCTION = "prod_secret_value_here"
+python run.py
+```
+
+Do NOT commit these values to the repository. Use platform secret managers or deployment env var configuration (Heroku, Render, Railway, Docker secrets, etc.).
 
 ### 10. Regenerating a Fernet Encryption Key
 If you need to set `ENCRYPTION_KEY` manually:
@@ -403,6 +447,32 @@ Sandbox Mode Banner: When running with `PLAID_ENV=sandbox` an informational bann
 ---
 
 If you encounter a new issue, search server logs first (they include sanitized Plaid product lists and any filtered retries) before filing an issue.
+
+## Sandbox Checkouts (Branch: `sandbox-checkouts`)
+
+This branch focuses on exploring Plaid Sandbox data and flows.
+
+- Default local `.env` on this branch is set to Sandbox with expanded products:
+   - `PLAID_ENV=sandbox`
+   - `PLAID_PRODUCTS=transactions,auth,liabilities,income`
+   - `SANDBOX_ALLOW_ADVANCED_PRODUCTS=true`
+
+- Toggle Plaid and environment via the helper script:
+   - Enable Plaid in sandbox: `python modectl.py plaid on sandbox`
+   - Enable Plaid in production: `python modectl.py plaid on production`
+   - Disable Plaid: `python modectl.py plaid off`
+
+- Notes on Sandbox data:
+   - Test institutions often return 2–3 depository accounts (e.g., checking/savings, sometimes credit).
+   - The number of accounts shown is dictated by the institution’s sandbox profile, not limited by our code. We ingest all accounts returned by Plaid (`/accounts/get`).
+   - To simulate bills and liabilities, include the `liabilities` product and use institutions that expose credit or loan accounts in Sandbox.
+   - Income is synthesized by our app from deposits when using `fetch_income()`; setting `SANDBOX_ALLOW_ADVANCED_PRODUCTS=true` lets you also explore Plaid’s income products if your keys have access.
+
+- Quick start on this branch:
+   1. Ensure Sandbox keys in `.env` (`PLAID_CLIENT_ID`, `PLAID_SECRET_SANDBOX`).
+   2. `PLAID_ENV=sandbox`, `USE_PLAID=true`.
+   3. Run `python run.py` and link with a sandbox institution (e.g., First Platypus Bank, user_good/pass_good).
+   4. Use Accounts/Transactions refresh to pull data; try enabling `liabilities` to generate Bill records from credit cards/loans.
 
 ## Development
 

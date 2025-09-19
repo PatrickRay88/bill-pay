@@ -69,7 +69,6 @@ def test_user_login(client, app):
     assert b'Dashboard' in response.data
 
 
-@pytest.mark.skipif(not os.getenv('USE_PLAID', 'false').lower() in ('1','true','yes','on'), reason='Plaid disabled')
 def test_plaid_unlink(client, app):
     """User can unlink Plaid which clears access token (skipped when Plaid disabled)."""
     # Create and login user

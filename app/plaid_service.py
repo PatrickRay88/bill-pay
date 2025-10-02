@@ -99,9 +99,10 @@ def create_link_token(user_id):
             user=LinkTokenCreateRequestUser(client_user_id=str(user_id)),
             products=[Products(p) for p in products]
         )
+        # Always include redirect_uri if configured; required for OAuth-based institutions.
+        # Plaid supports localhost redirect URIs for development when registered in the dashboard.
         redirect_uri = current_app.config.get('PLAID_REDIRECT_URI')
-        # Only include redirect_uri if plausibly configured (not default localhost unless explicitly desired)
-        if redirect_uri and 'localhost' not in redirect_uri:
+        if redirect_uri:
             kwargs['redirect_uri'] = redirect_uri
         req = LinkTokenCreateRequest(**kwargs)
         return plaid_client.link_token_create(req)

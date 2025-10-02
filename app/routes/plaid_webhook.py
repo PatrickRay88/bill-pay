@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session, current_app, redirect, url_for
 from app import db
 from app.models import User
 from app.plaid_service import fetch_accounts, fetch_transactions, decrypt_token, unlink_plaid
@@ -15,6 +15,8 @@ def get_link_token():
     def get_token():
         link_token = create_link_token(current_user.id)
         if link_token:
+            # Persist most recent link token so we can reuse after OAuth redirect
+            session['plaid_link_token'] = link_token
             return jsonify({"link_token": link_token})
         else:
             return jsonify({"error": "Failed to create link token"}), 400
@@ -40,6 +42,31 @@ def exchange_token():
             return jsonify({"error": message}), 400
     
     return exchange()
+
+@plaid_webhook_bp.route('/oauth-response')
+def oauth_response():
+    """Handle the browser redirect back from an OAuth-based institution flow.
+
+    Plaid requires re-initializing Link with the same link_token after redirect.
+    We simply render a minimal page that triggers JS to resume Link (handled by main.js).
+    """
+    # Token should be in session; if missing, guide user back to dashboard to start over.
+    link_token = session.get('plaid_link_token')
+    if not link_token:
+        current_app.logger.warning('OAuth redirect without stored link_token; redirecting to dashboard.')
+        return redirect(url_for('dashboard.index'))
+    # Render a lightweight inline HTML (avoid new template overhead) referencing existing JS which will detect token.
+    html = (
+        "<html><head><title>Plaid OAuth Redirect</title>"
+        "<script src='https://cdn.plaid.com/link/v2/stable/link-initialize.js'></script>"
+        "<script>window.addEventListener('load',function(){"
+        "var handler=Plaid.create({token:'" + link_token + "',receivedRedirectUri:window.location.href,onSuccess:function(public_token){"
+        "fetch('/api/plaid/exchange-token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token:public_token})})"
+        ".then(r=>r.json()).then(d=>{if(d.error){alert('Error: '+d.error);}else{window.location='/dashboard';}});},"
+        "onExit:function(err){console.log('Plaid exit after OAuth',err);window.location='/dashboard';}});handler.open();});</script></head>"
+        "<body><p style='font-family:sans-serif;padding:1rem;'>Resuming Plaid connection…</p></body></html>"
+    )
+    return html
 
 
 @plaid_webhook_bp.route('/unlink', methods=['POST'])

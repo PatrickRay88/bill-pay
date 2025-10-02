@@ -161,6 +161,22 @@ flask db upgrade
 ```
 
 ## Testing & Modes
+### Plaid OAuth Redirect Support
+
+Some European and large US institutions require an OAuth (redirect) flow. To enable it:
+
+1. In your Plaid dashboard, add a Redirect URI (e.g. `https://yourdomain.com/api/plaid/oauth-response` for production and optionally `http://localhost:5000/api/plaid/oauth-response` for local dev if allowed).
+2. Set the env var `PLAID_REDIRECT_URI` to that exact URL.
+3. This app now always includes the redirect URI when creating link tokens; on return Plaid calls the redirect with state.
+4. The route `/api/plaid/oauth-response` re-initializes Link client-side using the stored `link_token` persisted in the session and then completes the token exchange.
+5. If the link token is missing (session expired), the user is redirected to the dashboard to start again.
+
+Environment variable recap for OAuth:
+- `PLAID_REDIRECT_URI` – REQUIRED for production if any OAuth institutions will be linked.
+- Ensure your domain + path matches exactly what is configured in Plaid.
+
+No extra user action is required in the UI; Plaid handles the intermediate redirect and we seamlessly resume Link on return.
+
 
 The application supports two runtime modes controlled by the feature flag `USE_PLAID`:
 

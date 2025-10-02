@@ -91,6 +91,26 @@ def create_link_token(user_id):
     # Normalize list (could be strings already)
     configured_products = [p if isinstance(p, str) else str(p) for p in configured_products]
 
+    # Pre-log context so we can trace failures clearly
+    current_app.logger.info(
+        "Plaid link token request: env=%s products=%s redirect_uri=%s user_id=%s",
+        current_app.config.get('PLAID_ENV'),
+        configured_products,
+        current_app.config.get('PLAID_REDIRECT_URI') or 'none',
+        user_id
+    )
+
+    # Early validation for production secret format to avoid opaque INVALID_FIELD from Plaid
+    if current_app.config.get('PLAID_ENV') == 'production':
+        secret = current_app.config.get('PLAID_SECRET_RESOLVED') or ''
+        if not secret:
+            current_app.logger.error('Cannot create link token: production secret missing.')
+            return None
+        # Modern Plaid production secrets usually start with 'production-'; add heuristic guard.
+        if 'production-' not in secret and len(secret) < 40:  # heuristic length check
+            current_app.logger.error('Cannot create link token: PLAID_SECRET_PRODUCTION appears invalid (missing production- prefix or truncated).')
+            return None
+
     def _attempt(products):
         kwargs = dict(
             client_name="BillPay App",
@@ -113,6 +133,7 @@ def create_link_token(user_id):
             return response.link_token
         except Exception as first_error:
             msg = str(first_error)
+            current_app.logger.warning(f"Initial link token attempt failed: {msg}")
             # Detect unauthorized products pattern
             if 'client is not authorized to access the following products' in msg:
                 # Parse product names inside brackets ["income", "liabilities"]

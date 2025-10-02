@@ -5,6 +5,23 @@ from app.plaid_service import fetch_accounts, fetch_transactions, decrypt_token,
 
 plaid_webhook_bp = Blueprint('plaid_webhook', __name__, url_prefix='/api/plaid')
 
+@plaid_webhook_bp.route('/diagnostics', methods=['GET'])
+def diagnostics():
+    """Return safe Plaid configuration diagnostics (no secrets)."""
+    from flask_login import current_user
+    cfg = current_app.config
+    data = {
+        'env': cfg.get('PLAID_ENV'),
+        'use_plaid': bool(cfg.get('USE_PLAID')),
+        'products': cfg.get('PLAID_PRODUCTS'),
+        'redirect_uri_set': bool(cfg.get('PLAID_REDIRECT_URI')),
+        'client_id_present': bool(cfg.get('PLAID_CLIENT_ID')),
+        'secret_selected': bool(cfg.get('PLAID_SECRET_RESOLVED')),
+        'user_authenticated': current_user.is_authenticated,
+        'link_token_in_session': bool(session.get('plaid_link_token'))
+    }
+    return jsonify(data)
+
 @plaid_webhook_bp.route('/link-token', methods=['POST'])
 def get_link_token():
     """Create a link token for the current user."""

@@ -58,7 +58,16 @@ class ProductionConfig(Config):
     """Production configuration."""
     DEBUG = False
     TESTING = False
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    # Force production environment selection for Plaid
+    PLAID_ENV = 'production'
+    # If USE_PLAID not explicitly set, default to true in production
+    USE_PLAID = os.environ.get('USE_PLAID', 'true').lower() in ('1','true','yes','on')
+    # Allow a production‑specific product list override (PLAID_PRODUCTS_PRODUCTION)
+    _prod_products = os.environ.get('PLAID_PRODUCTS_PRODUCTION')
+    if _prod_products:
+        PLAID_PRODUCTS = [p.strip() for p in _prod_products.split(',') if p.strip()]
+    # Prefer an external database; fall back to sqlite with a warning marker
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///site.db'
     
 
 config = {

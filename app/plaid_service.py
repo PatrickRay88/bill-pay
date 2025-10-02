@@ -136,27 +136,35 @@ def create_link_token(user_id):
             current_app.logger.warning(f"Initial link token attempt failed: {msg}")
             # Detect unauthorized products pattern
             if 'client is not authorized to access the following products' in msg:
-                # Parse product names inside brackets ["income", "liabilities"]
-                import re, json
+                # Parse product names inside brackets, handling escaped quotes.
+                import re
                 unauthorized = []
                 match = re.search(r'products: \[(.+?)\]', msg)
                 if match:
                     raw = match.group(1)
-                    # Replace single quotes with double for json safety
-                    raw = raw.replace("'", '"')
-                    # Split on commas if not JSON array style
-                    try:
-                        # Attempt to wrap and load
-                        unauthorized = json.loads(f'[{raw}]') if not raw.strip().startswith('[') else json.loads(raw)
-                    except Exception:
-                        unauthorized = [p.strip().strip('"').strip("'") for p in raw.split(',')]
-                filtered = [p for p in configured_products if p not in unauthorized]
+                    # Unescape common patterns and split
+                    raw_clean = raw.replace('\\"', '"').replace("'", "")
+                    for part in raw_clean.split(','):
+                        name = part.strip().strip('"').strip()
+                        if name:
+                            unauthorized.append(name)
+                filtered = [p for p in configured_products if p not in set(unauthorized)]
                 if not filtered:
                     current_app.logger.error("All requested Plaid products unauthorized; falling back to 'transactions'.")
                     filtered = ['transactions']
-                current_app.logger.info(f"Retrying link token creation without unauthorized products: {unauthorized}")
-                response = _attempt(filtered)
-                return response.link_token
+                else:
+                    current_app.logger.info(
+                        "Retrying link token creation with products filtered (%s -> %s) removed=%s",
+                        configured_products,
+                        filtered,
+                        unauthorized
+                    )
+                try:
+                    response = _attempt(filtered)
+                    return response.link_token
+                except Exception as retry_err:
+                    current_app.logger.error(f"Retry after filtering unauthorized products failed: {retry_err}")
+                    raise retry_err
             else:
                 raise first_error
     except Exception as e:

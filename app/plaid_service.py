@@ -15,7 +15,7 @@ from plaid.model.country_code import CountryCode
 from flask import current_app
 from cryptography.fernet import Fernet
 from app import db, plaid_client
-from app.models import User, Account, Transaction, Bill, Income
+from app.models import User, Account, Transaction, Bill, Income, PlaidItem
 
 def unlink_plaid(user, reset_data=True):
     """Completely unlink Plaid for a user.
@@ -44,6 +44,32 @@ def unlink_plaid(user, reset_data=True):
         db.session.rollback()
         current_app.logger.error(f"Failed to unlink Plaid: {e}")
         return False, f"Failed to unlink Plaid: {e}"
+
+def unlink_plaid_item(user, plaid_item_id, reset_data=True):
+    """Unlink a single PlaidItem and optionally its accounts/transactions."""
+    try:
+        item = PlaidItem.query.filter_by(id=plaid_item_id, user_id=user.id).first()
+        if not item:
+            return False, 'Plaid item not found.'
+        if reset_data:
+            # Delete transactions tied to accounts of this item
+            acct_ids = [a.id for a in Account.query.filter_by(user_id=user.id, plaid_item_id=item.id).all()]
+            if acct_ids:
+                Transaction.query.filter(Transaction.account_id.in_(acct_ids)).delete(synchronize_session=False)
+            Account.query.filter_by(user_id=user.id, plaid_item_id=item.id).delete()
+        db.session.delete(item)
+        db.session.commit()
+        # If no more items remain, clear legacy fields
+        remaining = PlaidItem.query.filter_by(user_id=user.id).count()
+        if remaining == 0:
+            user.plaid_access_token = None
+            user.item_id = None
+            db.session.commit()
+        return True, 'Plaid institution disconnected.'
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Failed to unlink Plaid item {plaid_item_id}: {e}")
+        return False, f"Failed to unlink institution: {e}"
 
 # For encrypting/decrypting the Plaid access token
 def get_encryption_key():
@@ -106,10 +132,9 @@ def create_link_token(user_id):
         if not secret:
             current_app.logger.error('Cannot create link token: production secret missing.')
             return None
-        # Modern Plaid production secrets usually start with 'production-'; add heuristic guard.
-        if 'production-' not in secret and len(secret) < 40:  # heuristic length check
-            current_app.logger.error('Cannot create link token: PLAID_SECRET_PRODUCTION appears invalid (missing production- prefix or truncated).')
-            return None
+        if 'production-' not in secret and len(secret) < 40:
+            # Warn but DO NOT block; some older or internal style secrets may differ.
+            current_app.logger.warning('PLAID_SECRET_PRODUCTION format heuristic not met (no production- prefix, len<40); proceeding anyway.')
 
     def _attempt(products):
         kwargs = dict(
@@ -172,63 +197,74 @@ def create_link_token(user_id):
         return None
 
 
-def exchange_public_token(public_token, user):
-    """Exchange the public token for an access token and store it with the user."""
+def exchange_public_token(public_token, user, institution_name=None):
+    """Exchange the public token for an access token and persist as a PlaidItem (multi-item support).
+
+    Legacy fallback: if PlaidItem creation fails, we still try to set user.plaid_access_token (should be removed after migration).
+    """
     try:
-        # Ensure user is attached to current session (esp. in tests where fixture returned detached instance)
         user = db.session.merge(user)
         exchange_request = ItemPublicTokenExchangeRequest(public_token=public_token)
         exchange_response = plaid_client.item_public_token_exchange(exchange_request)
-        
-        # Store the access token with the user
         access_token = exchange_response.access_token
         item_id = exchange_response.item_id
-        
-        # Encrypt the access token before storing
-        user.plaid_access_token = encrypt_token(access_token)
-        user.item_id = item_id
+
+        enc = encrypt_token(access_token)
+        existing = PlaidItem.query.filter_by(item_id=item_id, user_id=user.id).first()
+        if existing:
+            existing.access_token = enc
+            if institution_name and not existing.institution_name:
+                existing.institution_name = institution_name
+            existing.last_synced = utc_now()
+        else:
+            db.session.add(PlaidItem(user_id=user.id, item_id=item_id, access_token=enc, institution_name=institution_name))
+
+        user.plaid_access_token = enc  # legacy
+        user.item_id = item_id  # legacy
         db.session.commit()
-        
-        # After exchanging the token, fetch initial data
-        # Always invoke downstream fetch functions in TESTING (they are usually mocked) to satisfy test expectations
+
         products_lower = {p.lower() for p in current_app.config.get('PLAID_PRODUCTS', [])}
-        fetch_accounts(user)
-        fetch_transactions(user)
+        fetch_accounts_for_item(user, item_id)
+        fetch_transactions_for_item(user, item_id)
         if current_app.config.get('TESTING') or 'liabilities' in products_lower:
             fetch_liabilities(user)
         if current_app.config.get('TESTING') or 'income' in products_lower:
             fetch_income(user)
-        
-        return True, "Successfully connected your account!"
+        return True, "Successfully connected your institution!"
     except Exception as e:
-        current_app.logger.error(f"Error exchanging public token: {str(e)}")
-        return False, f"Error connecting your account: {str(e)}"
+        current_app.logger.error(f"Error exchanging public token: {e}")
+        return False, f"Error connecting your account: {e}"
 
 def fetch_accounts(user):
-    """Fetch account data from Plaid and store it in the database."""
+    """Fetch accounts for all PlaidItems for the user (multi-item)."""
+    user = db.session.merge(user)
+    items = PlaidItem.query.filter_by(user_id=user.id).all()
+    ok = True
+    for item in items:
+        success, _ = fetch_accounts_for_item(user, item.item_id)
+        ok = ok and success
+    return ok, "Accounts refreshed"
+
+def _decrypt_item_access(item: PlaidItem):
     try:
-        original_user = user
-        user = db.session.merge(user)
-        # Decrypt the access token
-        access_token = decrypt_token(user.plaid_access_token)
+        return decrypt_token(item.access_token)
+    except Exception:
+        return None
+
+def fetch_accounts_for_item(user, item_id):
+    """Fetch accounts for a single PlaidItem (by item_id)."""
+    try:
+        item = PlaidItem.query.filter_by(item_id=item_id, user_id=user.id).first()
+        if not item:
+            return False, "Item not found"
+        access_token = _decrypt_item_access(item)
         if not access_token:
-            return False, "No access token available"
-        
-        # Request account information
+            return False, "No access token for item"
         request = AccountsGetRequest(access_token=access_token)
         response = plaid_client.accounts_get(request)
-        
-        # Update or create accounts in our database
         for plaid_account in response.accounts:
-            # Check if the account exists
-            account = Account.query.filter_by(
-                user_id=user.id,
-                plaid_account_id=plaid_account.account_id
-            ).first()
-            
+            account = Account.query.filter_by(user_id=user.id, plaid_account_id=plaid_account.account_id).first()
             if not account:
-                # Create new account
-                # Ensure type/subtype stored as simple strings (Plaid enums can cause sqlite binding errors)
                 acct_type = getattr(plaid_account, 'type', None)
                 acct_subtype = getattr(plaid_account, 'subtype', None)
                 account = Account(
@@ -238,81 +274,53 @@ def fetch_accounts(user):
                     official_name=plaid_account.official_name,
                     type=str(acct_type) if acct_type is not None else 'unknown',
                     subtype=str(acct_subtype) if acct_subtype is not None else None,
-                    mask=plaid_account.mask
+                    mask=plaid_account.mask,
+                    plaid_item_id=item.id
                 )
                 db.session.add(account)
-            
-            # Update account balances
             if plaid_account.balances:
                 account.current_balance = plaid_account.balances.current
                 account.available_balance = plaid_account.balances.available
                 account.iso_currency_code = plaid_account.balances.iso_currency_code or 'USD'
-            
             account.last_synced = utc_now()
-        
         db.session.commit()
-        # Propagate accounts relationship back to original detached instance (used in tests)
-        if original_user is not user:
-            try:
-                original_user.__dict__['accounts'] = list(user.accounts)
-            except Exception:
-                pass
-        return True, "Accounts updated successfully"
-    
+        return True, "Accounts updated"
     except Exception as e:
-        current_app.logger.error(f"Error fetching accounts: {str(e)}")
+        current_app.logger.error(f"Error fetching accounts for item {item_id}: {e}")
         db.session.rollback()
-        return False, f"Error fetching accounts: {str(e)}"
+        return False, f"Error fetching accounts for item: {e}"
 
 def fetch_transactions(user, start_date=None, end_date=None):
-    """Fetch transaction data from Plaid and store it in the database."""
+    user = db.session.merge(user)
+    items = PlaidItem.query.filter_by(user_id=user.id).all()
+    ok = True
+    for item in items:
+        success, _ = fetch_transactions_for_item(user, item.item_id, start_date=start_date, end_date=end_date)
+        ok = ok and success
+    return ok, "Transactions refreshed"
+
+def fetch_transactions_for_item(user, item_id, start_date=None, end_date=None):
     try:
-        user = db.session.merge(user)
-        # Decrypt the access token
-        access_token = decrypt_token(user.plaid_access_token)
+        item = PlaidItem.query.filter_by(item_id=item_id, user_id=user.id).first()
+        if not item:
+            return False, "Item not found"
+        access_token = _decrypt_item_access(item)
         if not access_token:
-            return False, "No access token available"
-        
-        # Set date range
+            return False, "No access token for item"
         if not start_date:
-            # Default to 30 days ago if not specified
             start_date = (datetime.datetime.now() - datetime.timedelta(days=30)).date()
         if not end_date:
             end_date = datetime.datetime.now().date()
-            
-        options = TransactionsGetRequestOptions(
-            count=500,
-            include_personal_finance_category=True
-        )
-            
-        # Request transactions
-        request = TransactionsGetRequest(
-            access_token=access_token,
-            start_date=start_date,
-            end_date=end_date,
-            options=options
-        )
+        options = TransactionsGetRequestOptions(count=500, include_personal_finance_category=True)
+        request = TransactionsGetRequest(access_token=access_token, start_date=start_date, end_date=end_date, options=options)
         response = plaid_client.transactions_get(request)
-        
-        # Get accounts for this user to link transactions
-        account_map = {account.plaid_account_id: account.id for account in user.accounts}
-        
-        # Process transactions
+        account_map = {a.plaid_account_id: a.id for a in Account.query.filter_by(user_id=user.id, plaid_item_id=item.id).all()}
         for plaid_transaction in response.transactions:
-            # Check if the transaction exists
-            transaction = Transaction.query.filter_by(
-                plaid_transaction_id=plaid_transaction.transaction_id
-            ).first()
-            
-            # Get the corresponding account
-            if plaid_transaction.account_id in account_map:
-                account_id = account_map[plaid_transaction.account_id]
-            else:
-                # If we don't have this account, skip the transaction
+            transaction = Transaction.query.filter_by(plaid_transaction_id=plaid_transaction.transaction_id).first()
+            if plaid_transaction.account_id not in account_map:
                 continue
-            
+            account_id = account_map[plaid_transaction.account_id]
             if not transaction:
-                # Create new transaction
                 transaction = Transaction(
                     user_id=user.id,
                     account_id=account_id,
@@ -323,41 +331,29 @@ def fetch_transactions(user, start_date=None, end_date=None):
                     pending=plaid_transaction.pending
                 )
                 db.session.add(transaction)
-            
-            # Update transaction details
             transaction.category = plaid_transaction.personal_finance_category.primary if plaid_transaction.personal_finance_category else None
             transaction.category_id = plaid_transaction.category_id
             transaction.payment_channel = plaid_transaction.payment_channel
             transaction.merchant_name = plaid_transaction.merchant_name
-            
-            # If location info is available
             if hasattr(plaid_transaction, 'location'):
-                location_parts = []
-                if plaid_transaction.location.city:
-                    location_parts.append(plaid_transaction.location.city)
-                if plaid_transaction.location.region:
-                    location_parts.append(plaid_transaction.location.region)
-                if plaid_transaction.location.postal_code:
-                    location_parts.append(plaid_transaction.location.postal_code)
-                if plaid_transaction.location.country:
-                    location_parts.append(plaid_transaction.location.country)
-                transaction.location = ", ".join(location_parts)
-        
-        # Analyze recurring transactions
+                parts = []
+                loc = plaid_transaction.location
+                if loc.city: parts.append(loc.city)
+                if loc.region: parts.append(loc.region)
+                if loc.postal_code: parts.append(loc.postal_code)
+                if loc.country: parts.append(loc.country)
+                transaction.location = ", ".join(parts)
         detect_recurring_transactions(user.id)
-        
         db.session.commit()
-        return True, "Transactions updated successfully"
-    
+        return True, "Transactions updated"
     except Exception as e:
         msg = str(e)
-        # Plaid sandbox often returns PRODUCT_NOT_READY immediately after link; advise retry.
         if 'PRODUCT_NOT_READY' in msg:
-            current_app.logger.warning('Transactions product not ready yet; advise retry later or add webhook for faster readiness.')
-            return False, 'Transactions not ready yet. Please wait a few seconds and click refresh again.'
-        current_app.logger.error(f"Error fetching transactions: {msg}")
+            current_app.logger.warning(f'Transactions product not ready for item {item_id}; retry later.')
+            return False, 'Transactions not ready yet'
+        current_app.logger.error(f"Error fetching transactions for item {item_id}: {msg}")
         db.session.rollback()
-        return False, f"Error fetching transactions: {msg}"
+        return False, f"Error fetching transactions for item: {msg}"
 
 def detect_recurring_transactions(user_id):
     """Analyze transactions to detect recurring bills."""

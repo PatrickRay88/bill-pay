@@ -29,6 +29,9 @@ def create_app(config_name='default'):
     """Create and configure the Flask application."""
     app = Flask(__name__)
     app.config.from_object(config[config_name])
+    # Debug instrumentation for environment resolution
+    raw_env = os.environ.get('PLAID_ENV')
+    app.logger.info(f"Env resolution: raw PLAID_ENV={raw_env!r} -> effective={app.config.get('PLAID_ENV')} (set in config.py)")
     
     # Testing adjustments (must occur before extensions init)
     if app.config.get('TESTING'):
@@ -77,6 +80,11 @@ def create_app(config_name='default'):
                 # Heuristic: sandbox secrets often contain 'sandbox' or are shorter; add a warning if suspicious
                 if 'sandbox' in chosen_secret.lower():
                     app.logger.error("PLAID_ENV=production but secret looks like a sandbox secret (contains 'sandbox').")
+                # Additional heuristic: Plaid production secrets typically start with 'production-' while sandbox start with 'sandbox-'.
+                # If neither prefix present and length seems short, warn that the secret may be malformed or truncated.
+                if not any(chosen_secret.lower().startswith(p) for p in ('production-', 'sandbox-')):
+                    if len(chosen_secret) < 40:  # Plaid secrets with prefix usually exceed this
+                        app.logger.warning("PLAID_SECRET_PRODUCTION does not appear to have an expected 'production-' prefix and seems short; verify you copied the full production secret from the Plaid dashboard.")
                 app.logger.info(f"Plaid production mode enabled (secret length={secret_len}, tail={masked}).")
             else:
                 app.logger.info(f"Plaid sandbox mode enabled (secret length={secret_len}, tail={masked}).")
@@ -165,6 +173,23 @@ def create_app(config_name='default'):
                 db.session.add(u)
                 db.session.commit()
                 app.logger.info(f"Seeded admin user {admin_email}")
+        # Backfill legacy single-item tokens into PlaidItem records (idempotent)
+        from app.models import User, PlaidItem
+        legacy_users = User.query.filter(User.plaid_access_token.isnot(None)).all()
+        for lu in legacy_users:
+            if not PlaidItem.query.filter_by(user_id=lu.id).first():
+                try:
+                    app.logger.info(f"Backfilling legacy Plaid token for user {lu.id}")
+                    db.session.add(PlaidItem(
+                        user_id=lu.id,
+                        item_id=lu.item_id or f'legacy-item-{lu.id}',
+                        access_token=lu.plaid_access_token,
+                        institution_name=None
+                    ))
+                    db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    app.logger.error(f"Failed legacy backfill for user {lu.id}: {e}")
         
     @app.context_processor
     def inject_plaid_credentials():

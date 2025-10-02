@@ -3,16 +3,20 @@
 <div class="container py-3">
   
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>Accounts</h2>
+  <h2>Accounts</h2>
     <div class="d-flex align-items-center">
       {% if USE_PLAID %}
         {% if link_token %}
           <button class="btn btn-sm btn-success me-2 plaid-link-button">
-            <i class="fa fa-link me-1"></i> Connect Bank
+            <i class="fa fa-link me-1"></i> {% if current_user.plaid_items|length %}Link Another Bank{% else %}Connect Bank{% endif %}
           </button>
         {% endif %}
-        {% if current_user.plaid_access_token %}
-          <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger me-2" data-bs-toggle="tooltip" title="Unlink Plaid and remove imported data">
+        {% if current_user.plaid_items|length > 1 %}
+          <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger me-2" data-bs-toggle="tooltip" title="Unlink ALL institutions and remove imported data">
+            <i class="fa fa-unlink me-1"></i> Unlink All
+          </button>
+        {% elif current_user.plaid_items|length == 1 %}
+          <button id="plaid-unlink-button" class="btn btn-sm btn-outline-danger me-2" data-bs-toggle="tooltip" title="Unlink institution and remove imported data">
             <i class="fa fa-unlink me-1"></i> Unlink
           </button>
         {% endif %}
@@ -24,6 +28,26 @@
       <a href="/dashboard" class="btn btn-sm btn-secondary">Dashboard</a>
     </div>
   </div>
+  {% if plaid_items %}
+    <div class="mb-4">
+      <h5 class="text-muted text-uppercase">Connections</h5>
+      <div class="list-group">
+        {% for item in plaid_items %}
+          <div class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ item.institution_name or 'Institution' }}</strong>
+              <div class="small text-muted">Item ID: {{ item.item_id }}</div>
+            </div>
+            <div>
+              {% if plaid_items|length > 1 %}
+                <button class="btn btn-sm btn-outline-danger plaid-unlink-item-button" data-item-id="{{ item.id }}">Unlink</button>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
   {% if account_groups %}
     {% for type, accounts in account_groups.items() %}
       <div class="mb-4">

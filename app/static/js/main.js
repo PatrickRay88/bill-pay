@@ -30,7 +30,7 @@ function initPlaidLink() {
     const linkToken = linkTokenElement.dataset.token;
     const handler = Plaid.create({
         token: linkToken,
-        onSuccess: (public_token) => { exchangePublicToken(public_token); },
+        onSuccess: (public_token, metadata) => { exchangePublicToken(public_token, metadata); },
         onExit: (err) => { if (err) { console.error('Plaid Link Error:', err); showAlert('danger','There was an error connecting your bank. Please try again.'); } },
         onEvent: (event, metadata) => { console.log('Plaid Link Event:', event, metadata); }
     });
@@ -76,7 +76,7 @@ function initGlobalPlaidButton() {
                 if (d.error || !d.link_token) { showAlert('danger', d.error || 'Failed to get link token'); return; }
                 handler = Plaid.create({
                     token: d.link_token,
-                    onSuccess: (public_token) => { exchangePublicToken(public_token); },
+                    onSuccess: (public_token, metadata) => { exchangePublicToken(public_token, metadata); },
                     onExit: (err) => { if (err) { console.error('Plaid Link Error:', err); showAlert('danger','Plaid Link error'); } },
                     onEvent: (event, metadata) => { console.log('Plaid Link Event:', event, metadata); }
                 });
@@ -131,16 +131,16 @@ function initRefreshButtons() {
 
 
 // Exchange public token for access token
-function exchangePublicToken(public_token) {
+function exchangePublicToken(public_token, metadata) {
     showLoadingOverlay();
-    
+    const institution_name = metadata && metadata.institution && metadata.institution.name ? metadata.institution.name : null;
     fetch('/api/plaid/exchange-token', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCSRFToken()
         },
-        body: JSON.stringify({ public_token: public_token })
+        body: JSON.stringify({ public_token: public_token, institution_name: institution_name })
     })
     .then(response => response.json())
     .then(data => {
@@ -160,6 +160,20 @@ function exchangePublicToken(public_token) {
         showAlert('danger', 'Failed to connect bank account. Please try again.');
     });
 }
+
+// Per-item unlink buttons
+document.addEventListener('click', function(e){
+    const btn = e.target.closest('.plaid-unlink-item-button');
+    if(!btn) return;
+    const itemId = btn.getAttribute('data-item-id');
+    if(!itemId) return;
+    if(!confirm('Unlink this institution and remove its imported data?')) return;
+    showLoadingOverlay();
+    fetch(`/api/plaid/unlink-item/${itemId}`, { method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken': getCSRFToken()}, body: JSON.stringify({reset:true})})
+      .then(r=>r.json())
+      .then(d=>{ hideLoadingOverlay(); if(d.error){ showAlert('danger', d.error);} else { showAlert('success','Institution unlinked'); setTimeout(()=>window.location.reload(), 1000);} })
+      .catch(err=>{ hideLoadingOverlay(); console.error(err); showAlert('danger','Unlink failed'); });
+});
 
 // Get CSRF token from meta tag
 function getCSRFToken() {

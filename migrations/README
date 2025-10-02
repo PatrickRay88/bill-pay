@@ -1,0 +1,5 @@
+Generic single-database configuration for Alembic.
+
+This directory was created manually to support Flask-Migrate style migrations.
+You can generate new migrations with `flask db migrate` once the environment
+is wired (ensure FLASK_APP is set to run.py or app factory as needed).

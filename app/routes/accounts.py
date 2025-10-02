@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, jsonify, flash, redirect, url_for, request
+from flask import Blueprint, render_template, jsonify, flash, redirect, url_for, request, current_app
 from flask_login import current_user
 from app import db
-from app.models import Account, Transaction
+from app.models import Account, Transaction, PlaidItem
 from app.plaid_service import fetch_accounts, create_link_token
 from app.forms import AccountForm
 import uuid
@@ -15,11 +15,11 @@ def index(*args, **kwargs):
         return redirect(url_for('auth.login'))
 
     # Generate a link token if user not yet linked to Plaid
-    link_token = None
-    if not current_user.plaid_access_token:
-        link_token = create_link_token(current_user.id)
+    # Always allow linking another institution; generate a link token
+    link_token = create_link_token(current_user.id) if current_app.config.get('USE_PLAID') else None
 
     accounts = Account.query.filter_by(user_id=current_user.id).all()
+    plaid_items = PlaidItem.query.filter_by(user_id=current_user.id).all()
 
     # Group accounts by type
     account_groups = {}
@@ -30,7 +30,8 @@ def index(*args, **kwargs):
         'accounts/index.html',
         title='Accounts',
         account_groups=account_groups,
-        link_token=link_token
+    link_token=link_token,
+    plaid_items=plaid_items
     )
 
 @accounts_bp.route('/new', methods=['GET', 'POST'])

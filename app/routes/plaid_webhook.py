@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, session, current_app, redirect, url_for
 from app import db
 from app.models import User
-from app.plaid_service import fetch_accounts, fetch_transactions, decrypt_token, unlink_plaid
+from app.plaid_service import fetch_accounts, fetch_transactions, decrypt_token, unlink_plaid, unlink_plaid_item
 
 plaid_webhook_bp = Blueprint('plaid_webhook', __name__, url_prefix='/api/plaid')
 
@@ -52,7 +52,8 @@ def exchange_token():
         if not public_token:
             return jsonify({"error": "No public token provided"}), 400
             
-        success, message = exchange_public_token(public_token, current_user)
+        institution_name = request.json.get('institution_name')
+        success, message = exchange_public_token(public_token, current_user, institution_name=institution_name)
         if success:
             return jsonify({"message": message})
         else:
@@ -102,6 +103,23 @@ def unlink():
         return jsonify({"error": message}), 400
 
     return do_unlink()
+
+@plaid_webhook_bp.route('/unlink-item/<int:item_id>', methods=['POST'])
+def unlink_item(item_id):
+    """Unlink a single Plaid item (institution)."""
+    from flask_login import current_user, login_required
+
+    @login_required
+    def do_unlink_item():
+        reset = True
+        if request.is_json:
+            reset = bool(request.json.get('reset', True))
+        success, message = unlink_plaid_item(current_user, item_id, reset_data=reset)
+        if success:
+            return jsonify({"message": message})
+        return jsonify({"error": message}), 400
+
+    return do_unlink_item()
 
 @plaid_webhook_bp.route('/webhook', methods=['POST'])
 def webhook():

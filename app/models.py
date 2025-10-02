@@ -16,8 +16,8 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now)
-    plaid_access_token = db.Column(db.String(255))  # encrypted
-    item_id = db.Column(db.String(100))  # Plaid item ID
+    plaid_access_token = db.Column(db.String(255))  # encrypted (legacy single-item)
+    item_id = db.Column(db.String(100))  # Plaid item ID (legacy single-item)
     role = db.Column(db.String(20), default='user', nullable=False)  # 'user' or 'admin'
 
     # Relationships
@@ -25,6 +25,7 @@ class User(db.Model, UserMixin):
     transactions = db.relationship('Transaction', backref='user', lazy=True, cascade="all, delete-orphan")
     bills = db.relationship('Bill', backref='user', lazy=True, cascade="all, delete-orphan")
     incomes = db.relationship('Income', backref='user', lazy=True, cascade="all, delete-orphan")
+    plaid_items = db.relationship('PlaidItem', backref='user', lazy=True, cascade="all, delete-orphan")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -53,6 +54,7 @@ class Account(db.Model):
     available_balance = db.Column(db.Float)
     iso_currency_code = db.Column(db.String(3), default='USD')
     last_synced = db.Column(db.DateTime, default=utc_now)
+    plaid_item_id = db.Column(db.Integer, db.ForeignKey('plaid_item.id'))  # nullable for legacy rows
     
     # Relationships
     transactions = db.relationship('Transaction', backref='account', lazy=True, cascade="all, delete-orphan")
@@ -118,3 +120,18 @@ class Income(db.Model):
     
     def __repr__(self):
         return f'<Income {self.source} ${self.gross_amount}>'
+
+
+class PlaidItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    item_id = db.Column(db.String(100), unique=True, nullable=False)
+    access_token = db.Column(db.String(255), nullable=False)  # encrypted
+    institution_name = db.Column(db.String(120))
+    created_at = db.Column(db.DateTime, default=utc_now)
+    last_synced = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+
+    accounts = db.relationship('Account', backref='plaid_item', lazy=True)
+
+    def __repr__(self):
+        return f'<PlaidItem {self.item_id} user={self.user_id}>'
